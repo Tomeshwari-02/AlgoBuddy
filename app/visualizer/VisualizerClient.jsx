@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Search, ChevronRight } from "lucide-react";
@@ -94,6 +94,8 @@ const getTheme = (t) =>
     border: "#e5e7eb",
     label: "",
   };
+
+// (restored) use theme.bg / theme.border directly; no temporary dark border constants
 
 /* ═══════════════════════════════════════
    Mini Visuals for cards
@@ -351,6 +353,16 @@ const MINI_VIZ = {
    DS Card — homepage-style window card
    ═══════════════════════════════════════ */
 function DSCard({ section, theme, onClick, delay }) {
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const check = () => setIsDark(document.documentElement.classList.contains('dark'));
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
   const MiniViz = MINI_VIZ[section.title];
   const count = section.subsections
     ? section.subsections.reduce((a, s) => a + s.items.length, 0)
@@ -368,12 +380,12 @@ function DSCard({ section, theme, onClick, delay }) {
     >
       <div
         className="rounded-2xl border overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300"
-        style={{ borderColor: theme.border }}
+        style={{ borderColor: isDark ? 'rgba(255,255,255,0.04)' : theme.border }}
       >
         {/* title bar — like homepage code cards */}
         <div
           className="flex items-center gap-2 px-4 py-3 border-b"
-          style={{ background: theme.bg, borderColor: theme.border }}
+          style={{ background: isDark ? theme.darkBg : theme.bg, borderColor: isDark ? 'rgba(255,255,255,0.04)' : theme.border }}
         >
           <span className="w-3 h-3 rounded-full bg-[#ff5f57]" />
           <span className="w-3 h-3 rounded-full bg-[#febc2e]" />
@@ -389,7 +401,7 @@ function DSCard({ section, theme, onClick, delay }) {
           <div className="flex items-center gap-3 mb-3">
             <div
               className="w-10 h-10 rounded-xl flex items-center justify-center p-2 flex-shrink-0"
-              style={{ background: theme.bg }}
+                style={{ background: isDark ? theme.darkBg : theme.bg }}
             >
               {theme.icon(theme.color)}
             </div>
@@ -412,7 +424,7 @@ function DSCard({ section, theme, onClick, delay }) {
           {MiniViz && (
             <div
               className="rounded-lg p-3 mb-4 border"
-              style={{ background: theme.bg, borderColor: theme.border }}
+              style={{ background: isDark ? theme.darkBg : theme.bg, borderColor: isDark ? 'rgba(255,255,255,0.04)' : theme.border }}
             >
               <MiniViz color={theme.color} />
             </div>
@@ -441,6 +453,15 @@ function ModuleView({ section, theme, onBack }) {
     ? section.subsections.reduce((a, s) => a + s.items.length, 0)
     : 0;
 
+    const [isDark, setIsDark] = useState(false);
+    useEffect(() => {
+      if (typeof document === 'undefined') return;
+      const check = () => setIsDark(document.documentElement.classList.contains('dark'));
+      check();
+      const observer = new MutationObserver(check);
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+      return () => observer.disconnect();
+    }, []);
   return (
     <motion.div
       initial={{ opacity: 0, x: 40 }}
@@ -451,25 +472,27 @@ function ModuleView({ section, theme, onBack }) {
       {/* hero banner for this DS */}
       <div
         className="rounded-2xl border p-8 sm:p-10 mb-10"
-        style={{ background: theme.bg, borderColor: theme.border }}
+        style={{ background: isDark ? theme.darkBg : theme.bg, borderColor: isDark ? 'rgba(255,255,255,0.04)' : theme.border }}
       >
         <button
           onClick={onBack}
-          className="inline-flex items-center gap-2 text-[13px] font-bold text-surface-500 dark:text-surface-400
-            hover:text-surface-900 dark:hover:text-white transition-colors duration-200 mb-5"
+          className="inline-flex items-center gap-2 text-[13px] font-bold text-surface-500 dark:text-surface-400"
+          style={{ background: isDark ? theme.darkBg : theme.bg, borderColor: isDark ? 'rgba(255,255,255,0.04)' : theme.border }}
         >
-          <ArrowLeft className="w-4 h-4" /> Back to all topics
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to all topics</span>
         </button>
 
         <div className="flex items-center gap-4 mb-3">
           <div
             className="w-14 h-14 rounded-2xl flex items-center justify-center p-3 flex-shrink-0"
-            style={{ background: theme.bg }}
+            style={{ background: isDark ? theme.darkBg : theme.bg }}
           >
             {theme.icon(theme.color)}
           </div>
           <div>
             <h2
+              style={{ background: isDark ? theme.darkBg : theme.bg }}
               className="text-[2rem] sm:text-[2.8rem] font-black leading-[1.1] tracking-tighter text-surface-900 dark:text-surface-50"
             >
               {section.title}
