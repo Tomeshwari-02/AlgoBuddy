@@ -4,13 +4,20 @@ import { NextResponse } from "next/server";
 export async function middleware(request) {
   let supabaseResponse = NextResponse.next({ request });
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return supabaseResponse;
+  }
+
   // A server client is created per-request so that session cookies can be
   // refreshed when the access token is close to expiry. The setAll callback
   // propagates the new cookies into both the outgoing request and response so
   // that server components and client components see consistent session state.
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() {
