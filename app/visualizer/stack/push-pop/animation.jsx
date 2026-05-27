@@ -47,7 +47,7 @@ const StackVisualizer = () => {
         );
       }
     }
-  }, [stack, operation, isAnimating]);
+  }, [stack, operation, isAnimating, speed]);
 
   return (
     <main className="container mx-auto">
