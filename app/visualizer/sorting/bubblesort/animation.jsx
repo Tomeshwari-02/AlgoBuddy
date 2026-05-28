@@ -38,7 +38,7 @@ const createBubbleSwapQuestion = (arr, j) => {
 const BubbleSortVisualizer = () => {
   const [sorting, setSorting] = useState(false);
   const [sorted, setSorted] = useState(false);
-  const [array, setArray] = useState(() => loadFromStorage("bubble-array", []));
+  const [array, setArray] = useState([]);
   const [challengeEnabled, setChallengeEnabled] = useState(false);
   const {
     isPaused,
@@ -53,7 +53,7 @@ const BubbleSortVisualizer = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [totalSteps, setTotalSteps] = useState(0);
 
-  useEffect(() => { saveToStorage("bubble-array", array); }, [array]);
+  
   useEffect(() => { saveToStorage("bubble-speed", speed); }, [speed]);
 
   const [comparisons, setComparisons] = useState(0);
@@ -213,6 +213,7 @@ const BubbleSortVisualizer = () => {
                   resetStats();
                 }}
                 disabled={sorting}
+                currentArray={array}
                 className="w-full"
               />
             </div>
@@ -226,6 +227,7 @@ const BubbleSortVisualizer = () => {
               </button>
               <button
                 onClick={reset}
+                disabled={sorting}
                 className="w-full bg-none text-[#a435f0] border border-[#a435f0] hover:bg-[#f3e8ff] dark:hover:bg-[#a435f0]/20 px-4 py-2 rounded transition-colors text-sm sm:text-base"
               >
                 Reset All
@@ -239,8 +241,6 @@ const BubbleSortVisualizer = () => {
               isPaused={isPaused}
               onTogglePlayPause={togglePlayPause}
               speed={speed}
-              onIncreaseSpeed={increaseSpeed}
-              onDecreaseSpeed={decreaseSpeed}
               onSpeedChange={setSpeed}
             />
           )}
@@ -314,12 +314,12 @@ const BubbleSortVisualizer = () => {
                           ? "bg-yellow-400 dark:bg-yellow-400 border-yellow-600 dark:border-yellow-600 dark:text-gray-900"
                           : isSorted
                           ? "bg-green-400 dark:bg-green-400 border-green-600 dark:border-green-600 dark:text-gray-900"
-                          : "bg-blue-400 dark:bg-blue-400 border-blue-600 dark:border-blue-600 dark:text-gray-900"
+                          : "bg-primary/80 dark:bg-primary/80 border-primary dark:border-primary dark:text-gray-900"
                         }`}
                     >
                       {value}
                     </div>
-                    <div className="mt-1 text-xs text-gray-700 dark:text-blue-300 font-semibold">
+                    <div className="mt-1 text-xs text-gray-700 dark:text-[#c27cf7] font-semibold">
                       {index === currentIndices.i && "i"}
                       {index === currentIndices.j && "j"}
                     </div>
