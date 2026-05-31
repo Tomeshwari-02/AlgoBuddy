@@ -34,6 +34,7 @@ function getValidKey(value) {
 const supabaseUrl = getValidUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const supabaseAnonKey = getValidKey(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 const supabaseServiceKey = getValidKey(process.env.SUPABASE_SERVICE_KEY);
+const turnstileConfigured = process.env.TURNSTILE_CONFIGURED === "true";
 
 const supabaseAdmin =
   supabaseUrl && supabaseServiceKey
@@ -164,18 +165,27 @@ export async function POST(req) {
 
     const ip = getClientIp(req.headers);
 
-    const isSecretMissing = 
-      !process.env.TURNSTILE_SECRET_KEY || 
-      process.env.TURNSTILE_SECRET_KEY.includes("Your") ||
-      process.env.TURNSTILE_SECRET_KEY === "undefined";
+    const turnstileSecretKey = process.env.TURNSTILE_SECRET_KEY;
+    const isConfigured = turnstileConfigured && turnstileSecretKey && turnstileSecretKey !== "undefined";
 
     let captcha;
-    if (isSecretMissing) {
-      // If the secret key is missing or clearly not set, skip verification but log a warning.
-      console.warn("TURNSTILE_SECRET_KEY is not set. Skipping captcha verification. This should only be used for local development.");
+    if (!isConfigured) {
+      const isProduction = process.env.NODE_ENV === "production";
+      const explicitBypass = process.env.TURNSTILE_BYPASS === "true";
+
+      if (isProduction && !explicitBypass) {
+        return new Response(
+          JSON.stringify({ success: false, message: "Server misconfigured: CAPTCHA secret key is not set." }),
+          { status: 500, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (!explicitBypass) {
+        console.warn("TURNSTILE_SECRET_KEY is not configured. Skipping captcha verification. This should only be used for local development.");
+      }
+
       captcha = { ok: true };
     } else {
-      // If a real key exists (like on production), run the strict verification check!
       captcha = await verifyTurnstile(String(captchaToken), { ip });
     }
 
@@ -205,7 +215,11 @@ export async function POST(req) {
     }
 
     if (action === "signup") {
-      if (!supabaseAdmin) {
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY
+        ? String(process.env.SUPABASE_SERVICE_KEY).trim()
+        : null;
+
+      if (!supabaseUrl || !supabaseServiceKey) {
         return new Response(
           JSON.stringify({ success: false, message: "Auth server is not configured." }),
           { status: 500, headers: { "Content-Type": "application/json" } },

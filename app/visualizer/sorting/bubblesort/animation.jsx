@@ -8,6 +8,7 @@ import useVisualizerKeyboard from "@/app/hooks/useVisualizerKeyboard";
 import usePlayback from "@/app/hooks/usePlayback";
 import PlaybackControls from "@/app/components/ui/PlaybackControls";
 import useVisualizerReset from "@/app/hooks/useVisualizerReset";
+import { useVisualizerSession } from "@/app/contexts/VisualizerSessionContext";
 import ChallengeModePanel, {
   createOptions,
   useSortingChallenge,
@@ -212,6 +213,69 @@ const BubbleSortVisualizer = () => {
   const handleSpeedChange = useCallback((nextSpeed) => {
     setSpeed(nextSpeed);
   }, [setSpeed]);
+
+  const { registerCallbacks, unregisterCallbacks } = useVisualizerSession();
+
+  const stateRef = useRef();
+  stateRef.current = {
+    array,
+    sorting,
+    sorted,
+    comparisons,
+    swaps,
+    speed,
+    currentStep,
+    totalSteps,
+    currentIndices,
+    currentPhase,
+    stepExplanation,
+    challengeEnabled,
+  };
+
+  useEffect(() => {
+    registerCallbacks(
+      "bubble-sort",
+      () => ({
+        array: stateRef.current.array,
+        sorting: stateRef.current.sorting,
+        sorted: stateRef.current.sorted,
+        comparisons: stateRef.current.comparisons,
+        swaps: stateRef.current.swaps,
+        speed: stateRef.current.speed,
+        currentStep: stateRef.current.currentStep,
+        totalSteps: stateRef.current.totalSteps,
+        currentIndices: stateRef.current.currentIndices,
+        currentPhase: stateRef.current.currentPhase,
+        stepExplanation: stateRef.current.stepExplanation,
+        challengeEnabled: stateRef.current.challengeEnabled,
+      }),
+      (state) => {
+        isSortingRef.current = false;
+        if (resolveRef.current) {
+          resolveRef.current();
+          resolveRef.current = null;
+        }
+        if (animationRef.current) clearTimeout(animationRef.current);
+
+        setArray(state.array || []);
+        setSorting(state.sorting || false);
+        setSorted(state.sorted || false);
+        setComparisons(state.comparisons || 0);
+        setSwaps(state.swaps || 0);
+        setSpeed(state.speed || 1);
+        setCurrentStep(state.currentStep || 0);
+        setTotalSteps(state.totalSteps || 0);
+        setCurrentIndices(state.currentIndices || { i: -1, j: -1 });
+        setCurrentPhase(state.currentPhase || "");
+        setStepExplanation(state.stepExplanation || "");
+        setChallengeEnabled(state.challengeEnabled || false);
+      }
+    );
+
+    return () => {
+      unregisterCallbacks("bubble-sort");
+    };
+  }, [registerCallbacks, unregisterCallbacks, setSpeed]);
 
   // keyboard shortcuts
   useVisualizerKeyboard({
