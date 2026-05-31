@@ -1,21 +1,46 @@
 import {
   createCollaborationSession,
   listCollaborationSessions,
+  validateCsrfOrigin,
 } from "@/lib/collaboration/sessionStore";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { getClientIp } from "@/lib/getClientIp";
 
 export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const limit = searchParams.get("limit") ?? undefined;
-  const cursor = searchParams.get("cursor") ?? undefined;
+  const ip = getClientIp(request.headers);
+  const { allowed } = await checkRateLimit(`collab:list:${ip}`);
+  if (!allowed) {
+    return Response.json(
+      { error: "Too many requests. Please try again shortly." },
+      { status: 429 },
+    );
+  }
 
-  const { sessions, nextCursor } = await listCollaborationSessions({ limit, cursor });
+  const { searchParams } = new URL(request.url);
+  const limitParam = searchParams.get("limit");
+  const cursor = searchParams.get("cursor");
+
+  if (cursor !== null && (typeof cursor !== "string" || cursor.trim() === "")) {
+    return Response.json(
+      { error: "Invalid cursor parameter." },
+      { status: 400 },
+    );
+  }
+
+  const limit = limitParam ? Number(limitParam) : undefined;
+  const { sessions, nextCursor } = await listCollaborationSessions({
+    limit: limit && !Number.isNaN(limit) ? limit : undefined,
+    cursor: cursor ?? undefined,
+  });
   return Response.json({ sessions, nextCursor: nextCursor ?? null });
 }
 
 export async function POST(request) {
   try {
+    if (!validateCsrfOrigin(request)) {
+      return Response.json({ error: "CSRF validation failed" }, { status: 403 });
+    }
+
     const ip = getClientIp(request.headers);
     const { allowed } = await checkRateLimit(`collab:create:${ip}`);
     if (!allowed) {
