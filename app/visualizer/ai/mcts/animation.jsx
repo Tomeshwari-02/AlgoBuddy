@@ -70,7 +70,7 @@ const MCTSAnim = () => {
 
   useVisualizerReset(reset);
 
-  const select = (nodes) => {
+  const select = useCallback((nodes) => {
     let path = [0];
     let cur = nodes[0];
     while (cur.children && cur.children.length > 0) {
@@ -86,7 +86,7 @@ const MCTSAnim = () => {
       cur = best;
     }
     return path;
-  };
+  }, [exploreC]);
 
   const runTick = useCallback(() => {
     const nodes = tree.map((n) => ({ ...n }));
@@ -110,7 +110,7 @@ const MCTSAnim = () => {
     setStepExplanation(
       `Iteration #${count}: Performed ${simSize} simulations. The last path selected via UCT was: ${lastPath.join(" → ")}.`
     );
-  }, [tree, simSize, exploreC, stepCount]);
+  }, [tree, simSize, stepCount, select]);
 
   useEffect(() => {
     if (isAnimating && !isPaused) {

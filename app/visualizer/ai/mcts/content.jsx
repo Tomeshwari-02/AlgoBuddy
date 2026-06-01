@@ -43,14 +43,14 @@ const Content = () => {
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600 dark:text-purple-400 font-bold text-sm">2</div>
                 <div>
                   <strong className="text-gray-900 dark:text-white block mb-1">Expansion</strong>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">If the leaf node isn't a terminal state, create one or more child nodes to represent possible future moves.</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">If the leaf node isn&apos;t a terminal state, create one or more child nodes to represent possible future moves.</p>
                 </div>
               </li>
               <li className="flex gap-4">
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-orange-600 dark:text-orange-400 font-bold text-sm">3</div>
                 <div>
                   <strong className="text-gray-900 dark:text-white block mb-1">Simulation</strong>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Perform a "playout" from the new node by choosing moves (often randomly) until the end of the game is reached.</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Perform a &quot;playout&quot; from the new node by choosing moves (often randomly) until the end of the game is reached.</p>
                 </div>
               </li>
               <li className="flex gap-4">
@@ -108,7 +108,7 @@ const Content = () => {
               </div>
               <div className="p-4 bg-[#faf5ff] dark:bg-[#1a0a2e] rounded-xl border border-[#e9d5ff] dark:border-[#3b1a6e]">
                 <h4 className="font-bold text-[#a435f0] mb-2 uppercase text-xs tracking-wider">No Expert Knowledge</h4>
-                <p className="text-sm">It doesn't require a hand-crafted evaluation function; the "knowledge" is built statistically.</p>
+                <p className="text-sm">It doesn&apos;t require a hand-crafted evaluation function; the &quot;knowledge&quot; is built statistically.</p>
               </div>
             </div>
           </div>
