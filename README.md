@@ -245,3 +245,105 @@ Animated, step-by-step visualizations for a wide range of DSA topics:
 ## 🏗 Architecture
 
 ```mermaid
+graph TB
+    subgraph Client["🖥 Client — Next.js 14 App Router"]
+        UI["UI Components<br/>(React + Tailwind)"]
+        VIS["Visualizer Engine<br/>(GSAP + Framer Motion)"]
+        CHARTS["Complexity Graphs<br/>(Recharts)"]
+        EDITOR["Code Editor<br/>(Monaco)"]
+        THEME["Theme System<br/>(Dark/Light)"]
+    end
+    subgraph API["⚡ API Layer"]
+        AUTH_API["Auth Routes"]
+        CONTACT["Contact API"]
+        REVIEW["Review API"]
+        CHATBOT["AI Assistant<br/>(Gemini API)"]
+    end
+    subgraph Services["☁️ External Services"]
+        SUPA["Supabase<br/>(DB + Auth)"]
+        CF["Cloudflare<br/>Turnstile"]
+        GA["Google<br/>Analytics"]
+        REDIS["Upstash<br/>Redis"]
+        MAIL["Gmail<br/>(Nodemailer)"]
+        GEMINI["Google<br/>Gemini API"]
+    end
+    UI --> VIS
+    UI --> CHARTS
+    UI --> EDITOR
+    UI --> THEME
+    UI --> API
+    UI --> SUPA
+    AUTH_API --> SUPA
+    AUTH_API --> CF
+    CONTACT --> MAIL
+    CONTACT --> CF
+    REVIEW --> MAIL
+    REVIEW --> CF
+    CHATBOT --> REDIS
+    CHATBOT --> GEMINI
+    UI --> GA
+```
+
+<br/>
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+| Tool | Version |
+|---|---|
+| **Node.js** | `>= 20.x` |
+| **npm** | `>= 10.x` |
+| **Git** | Latest |
+
+### 1️⃣ Clone the Repository
+
+```bash
+git clone https://github.com/PankajSingh34/AlgoBuddy.git
+cd AlgoBuddy
+```
+
+### 2️⃣ Install Dependencies
+
+```bash
+npm install
+```
+
+### 3️⃣ Configure Environment Variables
+
+Create a `.env.local` file in the project root:
+
+```env
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-google-app-password
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+SUPABASE_SERVICE_KEY=your-supabase-service-key
+NEXT_PUBLIC_TURNSTILE_SITE_KEY=your-turnstile-site-key
+TURNSTILE_SECRET_KEY=your-turnstile-secret-key
+NEXT_PUBLIC_GA_ID=G-XXXXXXXXXX
+GEMINI_API_KEY=your-gemini-api-key
+UPSTASH_REDIS_REST_URL=your-upstash-url
+UPSTASH_REDIS_REST_TOKEN=your-upstash-token
+```
+
+### 4️⃣ Start the Development Server
+
+```bash
+npm run dev
+```
+
+Open **http://localhost:3000** and start visualizing! 🎉
+
+### 5️⃣ Other Commands
+
+```bash
+npm run build          # Production build
+npm run start          # Start production server
+npm run lint           # Run ESLint
+npm run test           # Run lint + security tests
+```
+
+<br/>
+
+## 📁 Project Structure
