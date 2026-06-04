@@ -47,11 +47,9 @@ async function getAuthenticatedUser() {
   return { user: data?.user ?? null, configured: true };
 }
 
-export async function GET(_request, { params }) {
+export async function GET(request, { params }) {
   const { user, configured } = await getAuthenticatedUser();
 
-  // When Supabase is configured, require a valid session to resolve individual
-  // session details. Unauthenticated callers receive 401, not session data.
   if (configured && !user) {
     return Response.json(
       { error: "Authentication required" },
@@ -59,7 +57,18 @@ export async function GET(_request, { params }) {
     );
   }
 
+  const ip = getClientIp(request.headers);
+  const { allowed } = await checkRateLimit(`collab:lookup:${ip}`);
+
+  if (!allowed) {
+    return Response.json(
+      { error: "Too many session lookup requests. Please try again shortly." },
+      { status: 429 },
+    );
+  }
+ 
   const session = await getPublicCollaborationSession(params.sessionId);
+
   if (!session) {
     return Response.json({ error: "Session not found" }, { status: 404 });
   }
