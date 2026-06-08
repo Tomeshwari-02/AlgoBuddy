@@ -12,14 +12,14 @@ import {
   FaInstagram,
 } from 'react-icons/fa6'
 
-import PrivacyPolicyModal from '@/app/components/PrivacyPolicyModal'
+
 import TermsOfServiceModal from '@/app/components/termsOfServicesModal'
 import CookiePolicyModal from '@/app/components/cookie'
 import CodeOfConductModel from '@/app/components/CodeOfConductModel'
 
 
 const Footer = () => {
-  const [showPolicyModal, setShowPolicyModal] = useState(false)
+  
   const [showTermsModal, setShowTermsModal] = useState(false)
   const [showCookieModal, setShowCookieModal] = useState(false)
   const [ShowShowOfConduct, setShowCodeOfConductModal] = useState(false)
@@ -313,12 +313,9 @@ const Footer = () => {
             <div>
               <h3 className={footerHeading}>Legal</h3>
               <div className="space-y-4">
-                <button
-                  onClick={() => setShowPolicyModal(true)}
-                  className={footerLink}
-                >
+                <Link href="/privacy">
                   Privacy Policy
-                </button>
+                </Link>
                 <button
                   onClick={() => setShowTermsModal(true)}
                   className={footerLink}
@@ -352,10 +349,7 @@ const Footer = () => {
         </div>
       </footer>
 
-      <PrivacyPolicyModal
-        isOpen={showPolicyModal}
-        onClose={() => setShowPolicyModal(false)}
-      />
+      
       <TermsOfServiceModal
         isOpen={showTermsModal}
         onClose={() => setShowTermsModal(false)}
