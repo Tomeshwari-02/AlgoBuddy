@@ -53,7 +53,7 @@ export default function PracticePage() {
   const [expandedTopics, setExpandedTopics] = useState({});
 
   // Unified progress hook (replaces all inline progress/streak logic)
-  const { progress, getStatus, updateProgress, streakData, loading: progressLoading } = useSheetProgress();
+  const { progress, getStatus, updateProgress, streakData } = useSheetProgress();
   const currentStreak = streakData.current;
   const longestStreak = streakData.best;
 
