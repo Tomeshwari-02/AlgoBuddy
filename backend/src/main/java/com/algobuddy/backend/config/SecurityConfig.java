@@ -17,13 +17,19 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Value;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
-    private static final String JWK_SET_URI =
-            "https://uidxqhhepwibwfhfgdsl.supabase.co/auth/v1/.well-known/jwks.json";
+    @Value("${supabase.url}")
+    private String supabaseUrl;
+
+    @Value("${cors.allowed.origins}")
+    private List<String> allowedOrigins;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -53,8 +59,10 @@ public class SecurityConfig {
         factory.setReadTimeout(5_000);
         RestOperations rest = new RestTemplate(factory);
 
+        String jwkSetUri = supabaseUrl + "/auth/v1/.well-known/jwks.json";
+
         return NimbusJwtDecoder
-                .withJwkSetUri(JWK_SET_URI)
+                .withJwkSetUri(jwkSetUri)
                 .jwsAlgorithm(SignatureAlgorithm.ES256)
                 .restOperations(rest)
                 .build();
@@ -63,7 +71,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(Arrays.asList("*"));
+        configuration.setAllowedOriginPatterns(allowedOrigins);
         configuration.setAllowedMethods(
                 Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(
