@@ -1,4 +1,4 @@
-"use client";
+
 import Animation from "./animation";
 import ExploreOther from "@/app/components/ui/exploreOther";
 import Code from "./codeBlock";
