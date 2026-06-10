@@ -9,7 +9,8 @@ import com.algobuddy.backend.repository.UserProgressRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import lombok.extern.slf4j.Slf4j;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PracticeService {
 
     private final UserProgressRepository progressRepository;
@@ -37,7 +39,7 @@ public class PracticeService {
                 ));
 
         UserPracticeStats stats = statsRepository.findById(userId)
-                .orElse(new UserPracticeStats(userId, 0, 0, null, 0));
+                .orElse(new UserPracticeStats(userId, 0, 0, null, 0, 0));
 
         OffsetDateTime now = OffsetDateTime.now();
         OffsetDateTime startOfDay = now.toLocalDate().atStartOfDay(now.getOffset()).toOffsetDateTime();
@@ -94,15 +96,31 @@ public class PracticeService {
 
         // 2. Update Daily Streak
         if ("Completed".equals(request.getStatus())) {
-            updateStreak(userId);
+            updateStreakWithRetry(userId);
         }
         
         return getUserProgress(userId);
     }
 
+    private void updateStreakWithRetry(UUID userId) {
+        final int MAX_RETRIES = 3;
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                updateStreak(userId);
+                return;
+            } catch (ObjectOptimisticLockingFailureException e) {
+                if (attempt == MAX_RETRIES) {
+                    log.error("Failed to update streak for user {} after {} attempts", userId, MAX_RETRIES, e);
+                    throw e;
+                }
+                // Retry with fresh data
+            }
+        }
+    }
+
     private void updateStreak(UUID userId) {
         UserPracticeStats stats = statsRepository.findById(userId)
-                .orElse(new UserPracticeStats(userId, 0, 0, null, 0));
+                .orElse(new UserPracticeStats(userId, 0, 0, null, 0, 0));
 
         LocalDate today = LocalDate.now();
         LocalDate lastActive = stats.getLastActiveDate();
