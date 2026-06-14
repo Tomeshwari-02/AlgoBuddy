@@ -8,9 +8,9 @@ export default function PrivacyPage() {
       <div className="max-w-6xl mx-auto px-6 py-12">
         <Link
           href="/"
-              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full border border-[var(--color-border)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-all font-semibold text-sm text-[var(--udemy-text)] dark:text-[var(--udemy-dark-text)]"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border mb-6"
         >
-          ← Back to Home
+          ← Return Home
         </Link>
 
         <PrivacyPolicyContent />
