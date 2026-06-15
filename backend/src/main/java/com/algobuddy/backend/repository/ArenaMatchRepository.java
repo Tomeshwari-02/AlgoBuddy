@@ -17,4 +17,6 @@ public interface ArenaMatchRepository extends JpaRepository<ArenaMatch, UUID> {
     List<ArenaMatch> findRecentMatchesByUserId(@Param("userId") UUID userId, Pageable pageable);
 
     java.util.Optional<ArenaMatch> findByMatchId(String matchId);
+
+    boolean existsByMatchId(String matchId);
 }

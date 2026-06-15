@@ -156,12 +156,12 @@ public class ArenaService {
         }
 
         ArenaMatch match = ArenaMatch.builder()
+                .matchId(request.getMatchId())
                 .player1Id(requestingUserId)
                 .player2Id(request.getOpponentId())
                 .topic(request.getTopic() != null ? request.getTopic() : "Arrays")
                 .difficulty(request.getDifficulty() != null ? request.getDifficulty() : "Easy")
                 .startTime(java.time.LocalDateTime.now())
-                .matchId(request.getMatchId())
                 .build();
 
         matchRepository.save(match);
@@ -199,10 +199,17 @@ public class ArenaService {
         final int MAX_RETRIES = 3;
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
-                UserArenaProfile p1Profile = profileRepository.findById(requestingUserId)
-                        .orElseGet(() -> createDefaultProfile(requestingUserId));
-                UserArenaProfile p2Profile = profileRepository.findById(opponentId)
-                        .orElseGet(() -> createDefaultProfile(opponentId));
+                // Deadlock Prevention: Always lock rows in the same order
+                UUID firstId = requestingUserId.compareTo(opponentId) < 0 ? requestingUserId : opponentId;
+                UUID secondId = requestingUserId.compareTo(opponentId) < 0 ? opponentId : requestingUserId;
+
+                UserArenaProfile firstProfile = profileRepository.findById(firstId)
+                        .orElseGet(() -> createDefaultProfile(firstId));
+                UserArenaProfile secondProfile = profileRepository.findById(secondId)
+                        .orElseGet(() -> createDefaultProfile(secondId));
+
+                UserArenaProfile p1Profile = requestingUserId.equals(firstId) ? firstProfile : secondProfile;
+                UserArenaProfile p2Profile = opponentId.equals(firstId) ? firstProfile : secondProfile;
 
                 int p1RatingChange = isWinner ? 25 : -15;
                 int p2RatingChange = isWinner ? -15 : 25;
@@ -224,8 +231,8 @@ public class ArenaService {
                 if (!isWinner) p2Profile.setBattlesWon(p2Profile.getBattlesWon() + 1);
                 else p2Profile.setBattlesLost(p2Profile.getBattlesLost() + 1);
 
-                profileRepository.save(p1Profile);
-                profileRepository.save(p2Profile);
+                profileRepository.save(firstProfile);
+                profileRepository.save(secondProfile);
 
                 existingMatch.setWinnerId(isWinner ? requestingUserId : opponentId);
                 existingMatch.setEndTime(java.time.LocalDateTime.now());
