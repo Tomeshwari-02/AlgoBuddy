@@ -59,6 +59,7 @@ export default function Navbar() {
  
   const { user, setUser } = useUser();
   const userRef = useRef(null);
+  const notificationRef = useRef(null);
 
   useEffect(() => {
     const currentTheme = getStoredTheme();
@@ -100,6 +101,22 @@ export default function Navbar() {
         !userRef.current.contains(e.target)
       ) {
         setUserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", fn);
+
+    return () =>
+      document.removeEventListener("mousedown", fn);
+  }, []);
+
+  useEffect(() => {
+    const fn = (e) => {
+      if (
+        notificationRef.current &&
+        !notificationRef.current.contains(e.target)
+      ) {
+        setNotificationsOpen(false);
       }
     };
 
@@ -194,9 +211,9 @@ export default function Navbar() {
                   href={dynamicHref}
                   data-text={l.label}
                   aria-current={isActive(l.href) ? "page" : undefined}
-                  className={`relative text-[15px] flex flex-col items-center justify-center transition-colors duration-150 focus-ring after:block after:content-[attr(data-text)] after:invisible after:font-semibold after:h-0 after:overflow-hidden ${isActive(l.href)
-                      ? "text-primary dark:text-primary font-semibold"
-                      : "text-surface-600 dark:text-surface-400 font-medium hover:text-surface-900 dark:hover:text-white"
+                  className={`relative pb-2 text-[15px] flex flex-col items-center justify-center border-b-2 transition-colors duration-150 focus-ring ${isActive(l.href)
+                      ? "border-primary text-primary dark:text-primary font-semibold"
+                      : "border-transparent text-surface-600 dark:text-surface-400 font-medium hover:text-surface-900 dark:hover:text-white hover:border-surface-300 dark:hover:border-surface-600"
                     }`}
                 >
                   {l.label}
@@ -209,7 +226,7 @@ export default function Navbar() {
           </div>
 
           <div className="hidden md:flex items-center gap-3">
-            <div className="relative">
+            <div ref={notificationRef} className="relative">
               <button
                 onClick={() => setNotificationsOpen(!notificationsOpen)}
                 className="relative w-9 h-9 flex items-center justify-center rounded-full hover:bg-surface-100 dark:hover:bg-udemy-dark-surface"
