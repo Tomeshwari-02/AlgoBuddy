@@ -10,7 +10,28 @@ const Redis = redisUrl ? require("ioredis") : require("ioredis-mock");
 const { createAdapter } = require("@socket.io/redis-adapter");
 
 const app = express();
-app.use(cors());
+const ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "https://algobuddy.vercel.app",
+  "https://www.algobuddy.me",
+  "https://algobuddy.me"
+];
+
+function isOriginAllowed(origin, callback) {
+  // Allow requests with no origin (Render health checks, server-to-server)
+  if (!origin) return callback(null, true);
+  if (ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".vercel.app")) {
+    callback(null, true);
+  } else {
+    callback(new Error("Not allowed by CORS"));
+  }
+}
+
+app.use(cors({
+  origin: isOriginAllowed,
+  methods: ["GET", "POST"],
+}));
 
 const server = http.createServer(app);
 
@@ -21,21 +42,7 @@ const redisClient = pubClient.duplicate();
 
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      const allowed = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://algobuddy.vercel.app",
-        "https://www.algobuddy.me",
-        "https://algobuddy.me"
-      ];
-      if (allowed.includes(origin) || origin.endsWith(".vercel.app")) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: isOriginAllowed,
     methods: ["GET", "POST"],
   },
   adapter: createAdapter(pubClient, subClient)
@@ -102,6 +109,37 @@ setInterval(() => {
     }
   }
 }, CONNECTION_ATTEMPT_WINDOW_MS);
+
+// Periodic queue health checker to remove stale entries from matchmaking queues
+setInterval(async () => {
+  try {
+    const queueKeys = await redisClient.keys('queue:*');
+    for (const key of queueKeys) {
+      const elements = await redisClient.lrange(key, 0, -1);
+      let changed = false;
+      for (const el of elements) {
+        const parsed = JSON.parse(el);
+        // Remove expired entries
+        if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
+          await redisClient.lrem(key, 0, el);
+          changed = true;
+          continue;
+        }
+        // Remove entries where socket is no longer connected
+        const socket = io.sockets.sockets.get(parsed.socketId);
+        if (!socket || !socket.connected) {
+          await redisClient.lrem(key, 0, el);
+          changed = true;
+        }
+      }
+      if (changed && elements.length === 0) {
+        await redisClient.expire(key, 60);
+      }
+    }
+  } catch (err) {
+    console.error('[queue-health] Error cleaning stale entries:', err.message);
+  }
+}, 30000);
 
 // Rate Limiting Config (Redis-backed token bucket)
 const MAX_TOKENS = 10;
@@ -201,9 +239,21 @@ io.on("connection", async (socket) => {
         }
         
         const opponent = JSON.parse(opponentStr);
+
+        // Discard expired entries
+        if (opponent.expiresAt && Date.now() > opponent.expiresAt) {
+          continue;
+        }
+
         if (opponent.userId === socket.data.userId) {
           skippedOpponents.push(opponentStr);
           continue; 
+        }
+
+        // Verify opponent socket is still connected
+        const opponentSocket = io.sockets.sockets.get(opponent.socketId);
+        if (!opponentSocket || !opponentSocket.connected) {
+          continue;
         }
         
         matchFound = true;
@@ -241,7 +291,15 @@ io.on("connection", async (socket) => {
       }
 
       if (!matchFound) {
-        const queueData = JSON.stringify({ ...data, userId: socket.data.userId, topic: targetTopic, difficulty: targetDifficulty, socketId: socket.id });
+        const queueData = JSON.stringify({
+          ...data,
+          userId: socket.data.userId,
+          topic: targetTopic,
+          difficulty: targetDifficulty,
+          socketId: socket.id,
+          timestamp: Date.now(),
+          expiresAt: Date.now() + 60000,
+        });
         await redisClient.rpush(queueKey, queueData);
         await redisClient.hset(`socket:${socket.id}`, "queueKey", queueKey);
         console.log(`Added to queue ${queueKey}`);
@@ -334,20 +392,55 @@ io.on("connection", async (socket) => {
       
       const matchId = await redisClient.hget(`socket:${socket.id}`, "matchId");
       if (!matchId || matchId !== data.matchId) return;
-      
-      const matchStr = await redisClient.get(`match:${matchId}`);
-      if (matchStr) {
-        const match = JSON.parse(matchStr);
-        if (match.status !== "completed") {
-          match.status = "completed";
-          await redisClient.set(`match:${matchId}`, JSON.stringify(match));
-          
-          io.in(matchId).emit("match_ended", { winnerId: socket.data.userId });
-          
+
+      // Use atomic Lua script to check status and update in one operation
+      const ATOMIC_COMPLETE_SCRIPT = `
+        local matchKey = KEYS[1]
+        local matchStr = redis.call('GET', matchKey)
+        if not matchStr then return 0 end
+        local match = cjson.decode(matchStr)
+        if match.status == 'completed' then return 0 end
+        match.status = 'completed'
+        match.winnerId = ARGV[1]
+        redis.call('SET', matchKey, cjson.encode(match))
+        return 1
+      `;
+
+      try {
+        const acquired = await redisClient.eval(ATOMIC_COMPLETE_SCRIPT, 1, `match:${matchId}`, socket.data.userId);
+        if (acquired !== 1) return;
+
+        io.in(matchId).emit("match_ended", { winnerId: socket.data.userId });
+
+        const matchStr = await redisClient.get(`match:${matchId}`);
+        if (matchStr) {
+          const match = JSON.parse(matchStr);
           for (const p of match.players) {
             await redisClient.hdel(`socket:${p.socketId}`, "matchId");
           }
-          await redisClient.expire(`match:${matchId}`, 60 * 60);
+        }
+        await redisClient.expire(`match:${matchId}`, 60 * 60);
+      } catch (err) {
+        // cjson might not be available in ioredis-mock; fallback to non-atomic path
+        if (err.message && err.message.includes('cjson')) {
+          const matchStr = await redisClient.get(`match:${matchId}`);
+          if (matchStr) {
+            const match = JSON.parse(matchStr);
+            if (match.status !== "completed") {
+              match.status = "completed";
+              match.winnerId = socket.data.userId;
+              await redisClient.set(`match:${matchId}`, JSON.stringify(match));
+
+              io.in(matchId).emit("match_ended", { winnerId: socket.data.userId });
+
+              for (const p of match.players) {
+                await redisClient.hdel(`socket:${p.socketId}`, "matchId");
+              }
+              await redisClient.expire(`match:${matchId}`, 60 * 60);
+            }
+          }
+        } else {
+          throw err;
         }
       }
     } catch (error) {
@@ -369,24 +462,71 @@ io.on("connection", async (socket) => {
         }
       }
       
-      // 2. Handle active match disconnects
+      // 2. Handle active match disconnects atomically to prevent race conditions
       const matchId = await redisClient.hget(`socket:${socket.id}`, "matchId");
       if (matchId) {
-        const matchStr = await redisClient.get(`match:${matchId}`);
-        if (matchStr) {
-          const match = JSON.parse(matchStr);
-          if (match.status !== "completed") {
-            match.status = "completed";
-            await redisClient.set(`match:${matchId}`, JSON.stringify(match));
-            
-            const opponent = match.players.find(p => p.socketId !== socket.id);
-            if (opponent) {
-              io.to(opponent.socketId).emit("opponent_disconnected", { winnerId: opponent.userId });
+        const ATOMIC_DISCONNECT_SCRIPT = `
+          local matchKey = KEYS[1]
+          local disconnectingSocketId = ARGV[1]
+          local matchStr = redis.call('GET', matchKey)
+          if not matchStr then return nil end
+          local match = cjson.decode(matchStr)
+          if match.status == 'completed' then return nil end
+          match.status = 'completed'
+          
+          local opponentUserId = nil
+          local opponentSocketId = nil
+          for i, p in ipairs(match.players) do
+            if p.socketId ~= disconnectingSocketId then
+              opponentUserId = p.userId
+              opponentSocketId = p.socketId
+            end
+          end
+          
+          if opponentUserId then
+            match.winnerId = opponentUserId
+          end
+          
+          redis.call('SET', matchKey, cjson.encode(match))
+          return cjson.encode({
+            opponentUserId = opponentUserId,
+            opponentSocketId = opponentSocketId,
+            players = match.players
+          })
+        `;
+
+        try {
+          const resultStr = await redisClient.eval(ATOMIC_DISCONNECT_SCRIPT, 1, `match:${matchId}`, socket.id);
+          if (resultStr) {
+            const result = JSON.parse(resultStr);
+            if (result.opponentSocketId) {
+              io.to(result.opponentSocketId).emit("opponent_disconnected", { winnerId: result.opponentUserId });
             }
-            
-            for (const p of match.players) {
+            for (const p of result.players) {
               await redisClient.hdel(`socket:${p.socketId}`, "matchId");
             }
+          }
+        } catch (err) {
+          // Fallback to non-atomic path if cjson is unavailable (e.g. ioredis-mock in unit tests)
+          if (err.message && err.message.includes('cjson')) {
+            const matchStr = await redisClient.get(`match:${matchId}`);
+            if (matchStr) {
+              const match = JSON.parse(matchStr);
+              if (match.status !== "completed") {
+                match.status = "completed";
+                const opponent = match.players.find(p => p.socketId !== socket.id);
+                if (opponent) {
+                  match.winnerId = opponent.userId;
+                  await redisClient.set(`match:${matchId}`, JSON.stringify(match));
+                  io.to(opponent.socketId).emit("opponent_disconnected", { winnerId: opponent.userId });
+                }
+                for (const p of match.players) {
+                  await redisClient.hdel(`socket:${p.socketId}`, "matchId");
+                }
+              }
+            }
+          } else {
+            throw err;
           }
         }
       }
