@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
-import { generateCsrfToken, CSRF_COOKIE_NAME } from "@/lib/csrf";
+import { generateCsrfToken } from "@/lib/csrfToken";
+import { CSRF_COOKIE_NAME } from "@/lib/csrf";
 import { jsonResponse } from "@/lib/serverApi";
 
 export async function GET() {

@@ -1,7 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import {
-  validateCsrfToken,
   validateCsrfOrigin,
   isStateChangingMethod,
   isApiRoute,
@@ -102,92 +101,11 @@ export async function proxy(request) {
     const headerToken = request.headers.get(CSRF_HEADER_NAME);
     const cookieToken = request.cookies.get(CSRF_COOKIE_NAME)?.value;
 
-    if (!headerToken || !cookieToken) {
-      return NextResponse.json(
-        { error: "CSRF validation failed: invalid or missing token" },
-        { status: 403 },
-      );
-    }
-
-    if (!validateCsrfToken(cookieToken)) {
-      return NextResponse.json(
-        { error: "CSRF validation failed: token signature invalid" },
-        { status: 403 },
-      );
-    }
-
-    if (headerToken !== cookieToken) {
+    if (!headerToken || !cookieToken || headerToken !== cookieToken) {
       return NextResponse.json(
         { error: "CSRF validation failed: token mismatch" },
         { status: 403 },
       );
-    }
-  }
-
-  return supabaseResponse;
-}
-}
-
-function getSupabaseConfig() {
-  let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey || !isValidHttpUrl(supabaseUrl)) {
-    return null;
-  }
-
-  if (supabaseUrl.startsWith("http://localhost:")) {
-    supabaseUrl = supabaseUrl.replace("http://localhost:", "http://127.0.0.1:");
-  }
-
-  return { supabaseUrl, supabaseAnonKey };
-}
-
-const protectedRoutes = ["/arena", "/practice", "/dashboard", "/profile"];
-
-export async function proxy(request) {
-  let supabaseResponse = NextResponse.next({ request });
-
-  const supabaseConfig = getSupabaseConfig();
-  if (!supabaseConfig) {
-    if (process.env.NODE_ENV !== "production") {
-      console.warn(SUPABASE_ENV_ERROR);
-    }
-    return supabaseResponse;
-  }
-
-  const supabase = createServerClient(
-    supabaseConfig.supabaseUrl,
-    supabaseConfig.supabaseAnonKey,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value),
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
-        },
-      },
-    },
-  );
-
-  // Calling getUser() triggers a token refresh if the access token is expired.
-  // This must not be removed — without it, sessions silently expire mid-browse.
-  const { data: { user }, error } = await supabase.auth.getUser();
-
-  // Route protection — redirect unauthenticated users away from protected routes
-  const pathname = request.nextUrl.pathname;
-  if (protectedRoutes.some((route) => pathname.startsWith(route))) {
-    if (error || !user) {
-      const url = new URL("/login", request.url);
-      url.searchParams.set("redirect", pathname);
-      return NextResponse.redirect(url);
     }
   }
 
