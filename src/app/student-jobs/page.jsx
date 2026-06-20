@@ -255,7 +255,16 @@ export default function StudentJobsPage() {
                           </button>
                         </div>
                         <p className="text-indigo-600 font-medium mt-1">
-                          <HighlightText text={job.company} query={searchQuery} />
+                          {job.company_id ? (
+                            <Link
+                              href={`/company/${job.company_id}`}
+                              className="hover:underline"
+                            >
+                              <HighlightText text={job.company} query={searchQuery} />
+                            </Link>
+                          ) : (
+                            <HighlightText text={job.company} query={searchQuery} />
+                          )}
                         </p>
                         <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-gray-500">
                           {job.location && (
