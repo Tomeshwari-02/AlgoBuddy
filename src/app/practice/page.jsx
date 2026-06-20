@@ -20,6 +20,7 @@ import {
 import PracticeSidebar from "@/app/components/practice/PracticeSidebar";
 import PracticeRightSidebar from "@/app/components/practice/PracticeRightSidebar";
 import PracticeSessionBanner from "@/app/components/practice/PracticeSessionBanner";
+import PracticeDashboard from "@/app/components/practice/PracticeDashboard";
 import CompanyLogos from "@/app/components/practice/CompanyLogos";
 import TheoryDrawer from "@/app/components/practice/TheoryDrawer";
 import BackToTop from "@/app/components/ui/backtotop";
@@ -36,7 +37,7 @@ export default function PracticePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Views: 'problem-list', 'topic-wise', 'company-wise', 'bookmarks', 'recent-solved'
+  // Views: 'dashboard', 'problem-list', 'topic-wise', 'company-wise', 'bookmarks', 'recent-solved'
   const [activeView, setActiveView] = useState("problem-list");
   const [activeTab, setActiveTab] = useState("problems"); // 'problems', 'description', 'resources', 'discussion'
   
@@ -119,12 +120,21 @@ export default function PracticePage() {
     let easyTotal = 0;
     let mediumTotal = 0;
     let hardTotal = 0;
+    let easySolved = 0;
+    let mediumSolved = 0;
+    let hardSolved = 0;
     const uniqueCompanies = new Set();
 
     allProblems.forEach((prob) => {
       const status = getStatus(prob.id);
-      if (status === "Completed") solved++;
-      else if (status === "In Progress") attempted++;
+      if (status === "Completed") {
+        solved++;
+        if (prob.difficulty === "Easy") easySolved++;
+        else if (prob.difficulty === "Medium") mediumSolved++;
+        else if (prob.difficulty === "Hard") hardSolved++;
+      } else if (status === "In Progress") {
+        attempted++;
+      }
 
       if (prob.difficulty === "Easy") easyTotal++;
       else if (prob.difficulty === "Medium") mediumTotal++;
@@ -159,6 +169,9 @@ export default function PracticePage() {
       easyTotal,
       mediumTotal,
       hardTotal,
+      easySolved,
+      mediumSolved,
+      hardSolved,
       companiesCount: uniqueCompanies.size
     };
   }, [allProblems, progress, getStatus, streakData]);
@@ -344,7 +357,7 @@ export default function PracticePage() {
     <div className="min-h-screen bg-slate-50/50 dark:bg-neutral-900 text-slate-800 dark:text-neutral-200 transition-colors duration-300">
       
       {/* Container holding three-column layout */}
-      <div className="max-w-[1440px] mx-auto px-4 md:px-8 py-8 flex flex-col lg:flex-row gap-8">
+      <div className="max-w-[1440px] mx-auto px-4 md:px-8 py-8 flex flex-col lg:flex-row gap-y-8 lg:gap-0">
         
         {/* Left Sidebar */}
         <PracticeSidebar 
@@ -374,10 +387,36 @@ export default function PracticePage() {
         />
 
         {/* Center Content */}
-        <div className="flex-1 min-w-0 space-y-6">
+        <div className="flex-1 min-w-0 space-y-6 lg:ml-8">
           
           {/* Main dashboard rendering based on activeView */}
-          {activeView === "my-sheet" ? (
+          {activeView === "dashboard" ? (
+            <PracticeDashboard
+              dailyChallenge={dailyChallenge}
+              solvedCount={stats.solved}
+              dailySolved={stats.dailySolved}
+              weeklySolved={stats.weeklySolved}
+              monthlySolved={stats.monthlySolved}
+              dailyGoal={3}
+              weeklyGoal={10}
+              monthlyGoal={50}
+              streakDays={currentStreak}
+              bestStreak={longestStreak}
+              solved={stats.solved}
+              attempted={stats.attempted}
+              remaining={stats.remaining}
+              total={stats.total}
+              estimatedTime={stats.estimatedTime}
+              easyCount={stats.easySolved}
+              mediumCount={stats.mediumSolved}
+              hardCount={stats.hardSolved}
+              totalEasy={stats.easyTotal}
+              totalMed={stats.mediumTotal}
+              totalHard={stats.hardTotal}
+              companiesCount={stats.companiesCount}
+              activityData={activityData}
+            />
+          ) : activeView === "my-sheet" ? (
             /* ── MY SHEET VIEW ─────────────────────────────────────── */
             <section className="space-y-5">
               {/* Header */}
@@ -549,48 +588,40 @@ export default function PracticePage() {
             </section>
           ) : activeView === "problem-list" || activeView === "bookmarks" || activeView === "recent-solved" ? (
             <>
-              {/* Session banner (rendered as the top UI header of Problem List) */}
-              <PracticeSessionBanner 
-                title="DSA Sheet - Most Important Interview Questions"
-                description="All DSA topics covered – from basic to advanced. Perfect for interview preparation."
-                difficulty="Beginner"
-                problemCount={stats.total}
-                duration={stats.estimatedTime}
-                onBackToSessions={() => toast.success("You are at the main problem list dashboard.")}
-              />
-
-              {dailyChallenge && (
-                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-5 text-white shadow-lg">
-                    <h3 className="text-lg font-black">
-                      🎯 Challenge of the Day
-                    </h3>
-
-                    <p className="mt-2 font-semibold">
-                      {dailyChallenge.name}
-                    </p>
-
-                    <p className="text-sm opacity-90">
-                      Difficulty: {dailyChallenge.difficulty}
-                    </p>
-
-                    <a
-                      href={dailyChallenge.practiceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-block mt-3 px-4 py-2 bg-white text-purple-600 rounded-lg font-bold"
-                    >
-                      Solve Challenge
-                    </a>
+              {/* Top Row: Banner and Session Progress */}
+              <div className="flex flex-col lg:flex-row items-stretch gap-4">
+                <div className="flex-1">
+                  <PracticeSessionBanner 
+                    title="DSA Sheet - Most Important Interview Questions"
+                    description="All DSA topics covered – from basic to advanced. Perfect for interview preparation."
+                    difficulty="Beginner"
+                    problemCount={stats.total}
+                    duration={stats.estimatedTime}
+                    solved={stats.solved}
+                    attempted={stats.attempted}
+                    remaining={stats.remaining}
+                    total={stats.total}
+                  />
+                </div>
+                {activeView === "problem-list" && (
+                  <div className="w-full lg:w-[260px] flex-shrink-0">
+                    <PracticeRightSidebar 
+                      solved={stats.solved}
+                      attempted={stats.attempted}
+                      remaining={stats.remaining}
+                      total={stats.total}
+                      onViewProgress={() => setActiveView("dashboard")}
+                    />
                   </div>
                 )}
+              </div>
 
               {/* Tab navigation */}
               <div className="flex border-b border-slate-200 dark:border-neutral-800">
                 {[
                   { id: "problems", label: `Problems (${filteredProblems.length})` },
                   { id: "description", label: "Description" },
-                  { id: "resources", label: "Resources" },
-                  { id: "discussion", label: "Discussion (23)" }
+                  { id: "resources", label: "Resources" }
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -658,7 +689,7 @@ export default function PracticePage() {
                   )}
 
                   {/* Problem Table */}
-                  <div className="overflow-x-auto bg-white dark:bg-[#1a1b1e] border border-slate-100 dark:border-neutral-800/80 rounded-2xl shadow-sm">
+                  <div className="overflow-x-auto bg-white dark:bg-[#1a1b1e] border border-slate-100 dark:border-neutral-800/80 rounded-2xl shadow-sm [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                     <table className="w-full text-left border-collapse min-w-[700px]">
                       <thead>
                         <tr className="bg-slate-50/40 dark:bg-neutral-900/10 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-neutral-500 border-b border-slate-100 dark:border-neutral-800">
@@ -899,38 +930,7 @@ export default function PracticePage() {
                 </div>
               )}
 
-              {/* Discussion Tab Content */}
-              {activeTab === "discussion" && (
-                <div className="bg-white dark:bg-[#1a1b1e] border border-slate-100 dark:border-neutral-800/80 rounded-3xl p-6 md:p-8 shadow-sm space-y-6">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-neutral-850">
-                    <h3 className="text-base font-black text-slate-800 dark:text-white">Community Discussion</h3>
-                    <button className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-xl text-xs font-black transition">
-                      Post Comment
-                    </button>
-                  </div>
 
-                  <div className="space-y-4 divide-y divide-slate-100 dark:divide-neutral-850">
-                    {[
-                      { user: "Priya Sharma", role: "Level 12", content: "Is Boyer-Moore required for Majority Element or can we use HashMap in tech interviews? Some interviewers prefer Boyers because of O(1) space.", time: "4h ago" },
-                      { user: "Rohan Gupta", role: "Level 21", content: "Monotonic stack on Largest Rectangle in Histogram was tricky! Drawing stack elements physically on paper helped me realize the bounds.", time: "1d ago" },
-                      { user: "Vikram Das", role: "Level 8", content: "Are there visualizers for dynamic programming available here? Most DP concepts are best shown using 2D grids.", time: "2d ago" }
-                    ].map((c, i) => (
-                      <div key={i} className={`pt-4 ${i === 0 ? "pt-0" : ""}`}>
-                        <div className="flex items-center justify-between text-xs mb-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-slate-800 dark:text-white">{c.user}</span>
-                            <span className="px-1.5 py-0.5 bg-slate-50 dark:bg-neutral-800 text-slate-400 text-[9px] font-black rounded">{c.role}</span>
-                          </div>
-                          <span className="text-slate-400 dark:text-neutral-500 font-medium text-[10px]">{c.time}</span>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-neutral-450 leading-relaxed">
-                          {c.content}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </>
           ) : activeView === "topic-wise" ? (
             /* Topic-wise Filter View */
@@ -1151,21 +1151,6 @@ export default function PracticePage() {
           )}
 
         </div>
-
-        {/* Right Sidebar */}
-        <PracticeRightSidebar 
-          solved={stats.solved}
-          attempted={stats.attempted}
-          remaining={stats.remaining}
-          total={stats.total}
-          estimatedTime={stats.estimatedTime}
-          easyCount={stats.easyTotal}
-          mediumCount={stats.mediumTotal}
-          hardCount={stats.hardTotal}
-          companiesCount={stats.companiesCount}
-          userName={userName}
-          activityData={activityData}
-        />
 
       </div>
 

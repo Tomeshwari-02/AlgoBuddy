@@ -18,7 +18,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.cache.annotation.Caching;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,6 +32,7 @@ public class ArenaService {
 
     private final UserArenaProfileRepository profileRepository;
     private final ArenaMatchRepository matchRepository;
+    private final CacheManager cacheManager;
 
     private void checkMatchResultRateLimit(UUID userId) {
         LocalDateTime since = LocalDateTime.now().minusMinutes(1);
@@ -155,6 +155,9 @@ public class ArenaService {
         }
 
         checkInitMatchRateLimit(requestingUserId);
+        if (request.getOpponentId().equals(requestingUserId)) {
+            throw new IllegalArgumentException("Cannot initiate a match against yourself");
+        }
 
         if (matchRepository.findByMatchId(request.getMatchId()).isPresent()) {
             return;
@@ -184,11 +187,6 @@ public class ArenaService {
     }
 
     @Transactional
-    @Caching(evict = {
-        @CacheEvict(value = "arenaProfile", key = "#requestingUserId"),
-        @CacheEvict(value = "arenaProfile", key = "#request.opponentId"),
-        @CacheEvict(value = "arenaLeaderboard", allEntries = true)
-    })
     public void recordMatchResult(UUID requestingUserId, com.algobuddy.backend.dto.RecordMatchRequest request) {
         checkMatchResultRateLimit(requestingUserId);
 
@@ -205,10 +203,12 @@ public class ArenaService {
             throw new SecurityException("User is not a participant in this match");
         }
 
-        UUID opponentId = request.getOpponentId();
-        if (!existingMatch.getPlayer1Id().equals(opponentId) &&
-            !existingMatch.getPlayer2Id().equals(opponentId)) {
-            throw new SecurityException("Opponent is not a participant in this match");
+        // Derive opponent from match record, not from client input
+        UUID opponentId;
+        if (existingMatch.getPlayer1Id().equals(requestingUserId)) {
+            opponentId = existingMatch.getPlayer2Id();
+        } else {
+            opponentId = existingMatch.getPlayer1Id();
         }
 
         if (existingMatch.getWinnerId() != null) {
@@ -259,6 +259,10 @@ public class ArenaService {
                 existingMatch.setEndTime(java.time.LocalDateTime.now());
                 existingMatch.setStatus(ArenaMatch.MatchStatus.COMPLETED);
                 matchRepository.save(existingMatch);
+
+                cacheManager.getCache("arenaProfile").evict(requestingUserId);
+                cacheManager.getCache("arenaProfile").evict(opponentId);
+                cacheManager.getCache("arenaLeaderboard").clear();
 
                 return;
             } catch (ObjectOptimisticLockingFailureException | DataIntegrityViolationException e) {
