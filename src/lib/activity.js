@@ -23,6 +23,7 @@ const computeStreak = (activities) => {
   if (!activities || activities.length === 0) return 0;
 
   const dates = activities
+    .filter(Boolean)
     .map((a) => {
       const d = new Date(a.activity_date || a.created_at);
       return d.toISOString().split("T")[0];
