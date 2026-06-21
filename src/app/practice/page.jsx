@@ -76,10 +76,12 @@ export default function PracticePage() {
     setMounted(true);
   }, []);
 
-  // Sync activeView with the URL ?view= param so browser Back/Forward works
+  // Sync activeView and activeTab with the URL query params so browser Back/Forward works
   useEffect(() => {
     const view = searchParams.get("view") || "problem-list";
     setActiveView(view);
+    const tab = searchParams.get("tab") || "problems";
+    setActiveTab(tab);
   }, [searchParams]);
 
   const ensureLoggedIn = () => {
@@ -625,7 +627,10 @@ export default function PracticePage() {
                 ].map((tab) => (
                   <button
                     key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => {
+                      const currentView = searchParams.get("view") || "problem-list";
+                      router.push(`/practice?view=${currentView}&tab=${tab.id}`);
+                    }}
                     className={`py-3.5 px-6 font-bold text-sm border-b-2 transition-all duration-200 ${
                       activeTab === tab.id
                         ? "border-primary text-primary dark:text-purple-400"
