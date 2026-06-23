@@ -48,6 +48,10 @@ export default function SmartRevisionFlashcards() {
   const [selectedTopic, setSelectedTopic] = useState("All");
   const [index, setIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
+  const [totalScore, setTotalScore] = useState(0);
+  const [weeklyScore, setWeeklyScore] = useState(0);
+  const [monthlyScore, setMonthlyScore] = useState(0);
+  const [personalBest, setPersonalBest] = useState(0);
 
   const topics = [
   "All",
@@ -80,10 +84,28 @@ export default function SmartRevisionFlashcards() {
   );
 }
 
+const difficultyPoints = {
+  Easy: 5,
+  Medium: 10,
+  Hard: 20,
+};
+
   const nextCard = () => {
-    setIndex((index + 1) % currentCards.length);
-    setShowAnswer(false);
-  };
+  const points = difficultyPoints[difficulty];
+
+  const newTotal = totalScore + points;
+
+  setTotalScore(newTotal);
+  setWeeklyScore((prev) => prev + points);
+  setMonthlyScore((prev) => prev + points);
+
+  if (newTotal > personalBest) {
+    setPersonalBest(newTotal);
+  }
+
+  setIndex((index + 1) % currentCards.length);
+  setShowAnswer(false);
+};
 
   const previousCard = () => {
   setIndex((index - 1 + currentCards.length) % currentCards.length);
@@ -96,9 +118,35 @@ export default function SmartRevisionFlashcards() {
         Smart Revision Flashcards
       </h2>
 
-      <p className="text-gray-400 mb-5">
-        Review completed DSA topics and improve long-term memory.
-      </p>
+      <div className="grid grid-cols-2 gap-3 mb-5">
+  <div className="bg-slate-800 p-3 rounded">
+    <p className="text-xs text-gray-400">Total Score</p>
+    <p className="text-xl font-bold text-green-400">
+      {totalScore}
+    </p>
+  </div>
+
+  <div className="bg-slate-800 p-3 rounded">
+    <p className="text-xs text-gray-400">Weekly Score</p>
+    <p className="text-xl font-bold text-blue-400">
+      {weeklyScore}
+    </p>
+  </div>
+
+  <div className="bg-slate-800 p-3 rounded">
+    <p className="text-xs text-gray-400">Monthly Score</p>
+    <p className="text-xl font-bold text-yellow-400">
+      {monthlyScore}
+    </p>
+  </div>
+
+  <div className="bg-slate-800 p-3 rounded">
+    <p className="text-xs text-gray-400">Personal Best</p>
+    <p className="text-xl font-bold text-purple-400">
+      {personalBest}
+    </p>
+  </div>
+</div>
 
       <div
   onClick={() => setShowAnswer(!showAnswer)}
@@ -186,6 +234,10 @@ export default function SmartRevisionFlashcards() {
           </button>
         ))}
       </div>
+
+      <p className="mt-3 text-sm text-green-400">
+  Current Difficulty Reward: +{difficultyPoints[difficulty]} points
+</p>
 
       <div className="mt-5 flex gap-3">
   <button
