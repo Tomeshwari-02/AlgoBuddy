@@ -279,27 +279,32 @@ setInterval(() => {
 // Periodic queue health checker to remove stale entries from matchmaking queues
 setInterval(async () => {
   try {
-    const queueKeys = await redisClient.keys('{arena}:queue:*');
-    for (const key of queueKeys) {
-      const elements = await redisClient.lrange(key, 0, -1);
-      let changed = false;
-      for (const el of elements) {
-        const parsed = JSON.parse(el);
-        if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
-          await redisClient.lrem(key, 0, el);
-          changed = true;
-          continue;
+    const queueKeys = [];
+    let cursor = '0';
+    do {
+      const result = await redisClient.scan(cursor, 'MATCH', '{arena}:queue:*', 'COUNT', 100);
+      cursor = result[0];
+      for (const key of result[1]) {
+        const elements = await redisClient.lrange(key, 0, -1);
+        let changed = false;
+        for (const el of elements) {
+          const parsed = JSON.parse(el);
+          if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
+            await redisClient.lrem(key, 0, el);
+            changed = true;
+            continue;
+          }
+          const socket = io.sockets.sockets.get(parsed.socketId);
+          if (!socket || !socket.connected) {
+            await redisClient.lrem(key, 0, el);
+            changed = true;
+          }
         }
-        const socket = io.sockets.sockets.get(parsed.socketId);
-        if (!socket || !socket.connected) {
-          await redisClient.lrem(key, 0, el);
-          changed = true;
+        if (changed && elements.length === 0) {
+          await redisClient.expire(key, 60);
         }
       }
-      if (changed && elements.length === 0) {
-        await redisClient.expire(key, 60);
-      }
-    }
+    } while (cursor !== '0');
   } catch (err) {
     console.error('[queue-health] Error cleaning stale entries:', err.message);
   }
