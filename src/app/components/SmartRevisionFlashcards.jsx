@@ -64,6 +64,7 @@ export default function SmartRevisionFlashcards() {
   const [sortOption, setSortOption] = useState("default");
   const [weakTopics, setWeakTopics] = useState([]);
   const [recommendedDifficulty, setRecommendedDifficulty] = useState("Easy");
+  const [favorites, setFavorites] = useState([]);
 
   const toggleFavorite = () => {
   const currentCard = currentCards[index];
