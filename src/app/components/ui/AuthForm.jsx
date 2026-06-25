@@ -3,7 +3,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, User, LogIn, UserPlus, Loader2 } from "lucide-react";
+import { Mail, Lock, User, LogIn, UserPlus, Loader2, Eye, EyeOff } from "lucide-react";
 import toast from "react-hot-toast";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -27,6 +27,8 @@ export default function AuthForm({ isLogin = true }) {
   const [passwordError, setPasswordError] = useState("");
   const [confirmError, setConfirmError] = useState("");
   const [captchaToken, setCaptchaToken] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const router = useRouter();
   const { setUser } = useUser();
 
@@ -48,10 +50,14 @@ export default function AuthForm({ isLogin = true }) {
   const passwordsMatch = password === confirmPassword && password !== "";
 
   // Real-time validation
-  const validatePasswords = () => {
+  const validatePasswords = (passVal, confirmVal) => {
     setPasswordError("");
 
-    if (confirmPassword && !passwordsMatch) {
+    const currentPass = passVal !== undefined ? passVal : password;
+    const currentConfirm = confirmVal !== undefined ? confirmVal : confirmPassword;
+    const match = currentPass === currentConfirm && currentPass !== "";
+
+    if (currentConfirm && !match) {
       setConfirmError("Passwords do not match");
     } else {
       setConfirmError("");
@@ -231,17 +237,26 @@ export default function AuthForm({ isLogin = true }) {
                 <Lock size={18} className="text-gray-400 dark:text-gray-500" />
               </div>
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 aria-label="Password"
                 disabled={loading}
-                className="w-full pl-10 pr-4 py-3 rounded-lg border border-udemy-border dark:border-udemy-dark-border focus:outline-none focus:ring-2 focus:ring-udemy-purple bg-white dark:bg-udemy-dark-surface text-udemy-text dark:text-udemy-dark-text"
+                className="w-full pl-10 pr-10 py-3 rounded-lg border border-udemy-border dark:border-udemy-dark-border focus:outline-none focus:ring-2 focus:ring-udemy-purple bg-white dark:bg-udemy-dark-surface text-udemy-text dark:text-udemy-dark-text"
                 placeholder="Password"
                 value={password}
                 onChange={(e) => {
-                  setPassword(e.target.value);
-                  validatePasswords();
+                  const val = e.target.value;
+                  setPassword(val);
+                  validatePasswords(val, confirmPassword);
                 }}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
 
             {/* Password Requirements */}
@@ -263,17 +278,26 @@ export default function AuthForm({ isLogin = true }) {
                   />
                 </div>
                 <input
-                  type="password"
+                  type={showConfirmPassword ? "text" : "password"}
                   aria-label="Confirm Password"
                   disabled={loading}
-                  className="w-full pl-10 pr-4 py-3 rounded-lg border border-udemy-border dark:border-udemy-dark-border focus:outline-none focus:ring-2 focus:ring-udemy-purple bg-white dark:bg-udemy-dark-surface text-udemy-text dark:text-udemy-dark-text"
+                  className="w-full pl-10 pr-10 py-3 rounded-lg border border-udemy-border dark:border-udemy-dark-border focus:outline-none focus:ring-2 focus:ring-udemy-purple bg-white dark:bg-udemy-dark-surface text-udemy-text dark:text-udemy-dark-text"
                   placeholder="Confirm Password"
                   value={confirmPassword}
                   onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                    validatePasswords();
+                    const val = e.target.value;
+                    setConfirmPassword(val);
+                    validatePasswords(password, val);
                   }}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                  aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                >
+                  {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
                 {confirmError && (
                   <p className="mt-1 text-sm text-red-600 dark:text-red-400">
                     {confirmError}
