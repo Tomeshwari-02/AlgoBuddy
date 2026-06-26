@@ -44,11 +44,14 @@ public class ArenaService {
         }
     }
 
-    @Transactional
     @Cacheable(value = "arenaProfile", key = "#userId", unless = "#result == null")
     public ArenaProfileResponse getProfile(UUID userId) {
         if (!profileRepository.existsById(userId)) {
-            createDefaultProfile(userId);
+            try {
+                createDefaultProfile(userId);
+            } catch (DataIntegrityViolationException e) {
+                log.debug("Profile already created by concurrent request for userId: {}", userId);
+            }
         }
         
         ArenaLeaderboardProjection projection = profileRepository.findProfileWithUserDetails(userId)
