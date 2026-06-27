@@ -25,7 +25,6 @@ import PracticeDashboard from "@/app/components/practice/PracticeDashboard";
 import PracticeNotebook from "@/app/components/practice/PracticeNotebook";
 import CompanyLogos from "@/app/components/practice/CompanyLogos";
 import TheoryDrawer from "@/app/components/practice/TheoryDrawer";
-import BackToTop from "@/app/components/ui/backtotop";
 import Footer from "@/app/components/footer";
 
 import { practiceData } from "@/lib/practiceData";
@@ -35,7 +34,7 @@ import { useSheetProgress } from "@/app/hooks/useSheetProgress";
 import { useMySheet } from "@/app/hooks/useMySheet";
 
 export default function PracticePage() {
-  const { user } = useUser();
+  const { user,loading } = useUser();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -94,6 +93,7 @@ export default function PracticePage() {
   }, [searchParams]);
 
   const ensureLoggedIn = () => {
+    if (loading) return false; 
     if (!user) {
       toast.error("Please login to use this feature!");
       router.push("/login");
@@ -1397,7 +1397,6 @@ export default function PracticePage() {
         topicSlug={selectedProblem ? selectedProblem.topic.toLowerCase() : null}
       />
 
-      <BackToTop />
       <Footer />
     </div>
   );

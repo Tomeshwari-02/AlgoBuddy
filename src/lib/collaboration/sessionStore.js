@@ -20,12 +20,29 @@ const MEMORY_SWEEP_INTERVAL_MS = 60_000;
 const MAX_MEMORY_SESSIONS = parseInt(process.env.MAX_MEMORY_SESSIONS || '1000', 10);
 
 const ATOMIC_WRITE_SCRIPT = `
-  redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
-  redis.call('ZADD', KEYS[2], ARGV[3], KEYS[1])
-  if ARGV[4] == "public" then
-    redis.call('ZADD', KEYS[3], ARGV[3], KEYS[1])
+  local key = KEYS[1]
+  local sessionJson = ARGV[1]
+  local ttl = ARGV[2]
+  local score = ARGV[3]
+  local visibility = ARGV[4]
+  local expectedUpdatedAt = ARGV[5]
+
+  if expectedUpdatedAt and expectedUpdatedAt ~= '' then
+    local existing = redis.call('GET', key)
+    if existing then
+      local decoded = cjson.decode(existing)
+      if decoded.updatedAt ~= expectedUpdatedAt then
+        return 'CONFLICT'
+      end
+    end
+  end
+
+  redis.call('SET', key, sessionJson, 'EX', ttl)
+  redis.call('ZADD', KEYS[2], score, key)
+  if visibility == "public" then
+    redis.call('ZADD', KEYS[3], score, key)
   else
-    redis.call('ZREM', KEYS[3], KEYS[1])
+    redis.call('ZREM', KEYS[3], key)
   end
   return 1
 `;
@@ -225,8 +242,16 @@ async function backfillMemorySessionsToRedis() {
           memorySessions.delete(id);
           memorySessionTtls.delete(id);
         } else {
-          memorySessions.delete(id);
-          memorySessionTtls.delete(id);
+          const existingSession = JSON.parse(existing);
+          if (new Date(existingSession.updatedAt) >= new Date(session.updatedAt)) {
+            memorySessions.delete(id);
+            memorySessionTtls.delete(id);
+          } else {
+            await redis.set(sessionKey(id), session, { ex: SESSION_TTL_SECONDS });
+            migrated++;
+            memorySessions.delete(id);
+            memorySessionTtls.delete(id);
+          }
         }
       }
       await new Promise(resolve => setImmediate(resolve));
@@ -259,7 +284,10 @@ function startReconciliationTimer() {
   if (reconciliationTimer) return;
   reconciliationTimer = setInterval(async () => {
     if (memorySessions.size > 0 && shouldTryRedis()) {
-      await backfillMemorySessionsToRedis();
+      const count = await backfillMemorySessionsToRedis();
+      if (memorySessions.size === 0) {
+        stopReconciliationTimer();
+      }
     }
     // Log warning if memory session count exceeds threshold
     if (memorySessions.size > MEMORY_WRITE_WARN_THRESHOLD) {
@@ -271,6 +299,13 @@ function startReconciliationTimer() {
     }
   }, RECONCILIATION_INTERVAL_MS);
   if (reconciliationTimer.unref) reconciliationTimer.unref();
+}
+
+function stopReconciliationTimer() {
+  if (reconciliationTimer) {
+    clearInterval(reconciliationTimer);
+    reconciliationTimer = null;
+  }
 }
 
 function shouldTryRedis() {
@@ -425,6 +460,10 @@ function sessionKey(sessionId) {
   return `collab:session:${sessionId}`;
 }
 
+function sessionLockKey(sessionId) {
+  return `session:${sessionId}`;
+}
+
 function joinCodeKey(code) {
   return `collab:joinCode:${normalizeJoinCode(code)}`;
 }
@@ -486,7 +525,7 @@ async function readSession(sessionId) {
   };
 
   if (redis) return doRead();
-  return withMemoryLock(`read:${sessionId}`, doRead);
+  return withMemoryLock(sessionLockKey(sessionId), doRead);
 }
 
 async function findSessionByJoinCode(joinCode) {
@@ -538,15 +577,22 @@ async function writeSession(session, { expectedUpdatedAt } = {}) {
   const doWrite = async () => {
     if (shouldTryRedis()) {
       try {
-        if (expectedUpdatedAt) {
-          const existing = await redis.get(sessionKey(nextSession.id));
-          if (existing && existing.updatedAt !== expectedUpdatedAt) {
-            return Object.assign(new Error("Session was modified by another request. Please retry."), { status: 409 });
-          }
+        const result = await redis.eval(
+          ATOMIC_WRITE_SCRIPT,
+          [sessionKey(nextSession.id), SESSION_INDEX_KEY, SESSION_PUBLIC_INDEX_KEY],
+          [
+            JSON.stringify(nextSession),
+            SESSION_TTL_SECONDS,
+            Date.now(),
+            nextSession.visibility,
+            expectedUpdatedAt || '',
+          ],
+        );
+
+        if (result === 'CONFLICT') {
+          markRedisOnline();
+          return Object.assign(new Error("Session was modified by another request. Please retry."), { status: 409 });
         }
-        await redis.set(sessionKey(nextSession.id), nextSession, {
-          ex: SESSION_TTL_SECONDS,
-        });
         markRedisOnline();
       } catch (err) {
         if (err.status === 409) throw err;
@@ -576,7 +622,7 @@ async function writeSession(session, { expectedUpdatedAt } = {}) {
   };
 
   if (redis) return doWrite();
-  return withMemoryLock(`write:${nextSession.id}`, doWrite);
+  return withMemoryLock(sessionLockKey(nextSession.id), doWrite);
 }
 
 function pruneActiveSubscriptionTokens(tokens, nowMs = Date.now()) {
@@ -640,7 +686,7 @@ async function issueSubscriptionTokenForParticipant(sessionId, userId, { newPass
     }
   }
 
-  return withMemoryLock(sessionId, async () => {
+  return withMemoryLock(sessionLockKey(sessionId), async () => {
     const session = await readSession(sessionId);
     if (!session) {
       return { error: "Session not found", status: 404 };
@@ -714,7 +760,7 @@ async function leaveCollaborationSession(sessionIdentifier, userId) {
     }
   }
 
-  return withMemoryLock(sessionIdentifier, async () => {
+  return withMemoryLock(sessionLockKey(sessionIdentifier), async () => {
     const session = await readSession(sessionIdentifier);
     if (!session) {
       return { error: "Session not found", status: 404 };
@@ -1020,10 +1066,13 @@ export async function listCollaborationSessions({ limit, cursor } = {}) {
           if (lastScore !== null && lastScore !== undefined) {
             // Count how many entries at this same score have already been
             // returned (including any from previous pages at this score).
-            let tieCount = startOffset;
+            // Only carry over startOffset when the boundary score hasn't
+            // changed — otherwise it belongs to a different score group.
+            let tieCount = 0;
             for (let i = 0; i <= idIdx; i++) {
               if (scores[i] === lastScore) tieCount++;
             }
+            if (lastScore === maxScore) tieCount += startOffset;
             nextCursor = `${lastScore}::${tieCount}`;
           }
         }
@@ -1195,7 +1244,10 @@ function withMemoryLock(key, fn) {
 
 async function executeLocked(lockKey, queue) {
   const entry = queue[0];
+  let completed = false;
   const timer = setTimeout(() => {
+    if (completed) return;
+    completed = true;
     const currentQueue = lockQueues.get(lockKey);
     if (!currentQueue || currentQueue.length === 0) {
       lockQueues.delete(lockKey);
@@ -1212,9 +1264,13 @@ async function executeLocked(lockKey, queue) {
 
   try {
     const result = await entry.fn();
+    if (completed) return;
+    completed = true;
     clearTimeout(timer);
     notifyNext(lockKey, result, null);
   } catch (err) {
+    if (completed) return;
+    completed = true;
     clearTimeout(timer);
     notifyNext(lockKey, null, err);
   }
@@ -1291,7 +1347,7 @@ export async function exchangeRealtimeSubscriptionToken(
   }
 
   // In-memory fallback with mutual exclusion
-  return withMemoryLock(sessionId, async () => {
+  return withMemoryLock(sessionLockKey(sessionId), async () => {
     const session = await readSession(sessionId);
     if (!session) {
       return { error: "Session not found", status: 404 };
@@ -1379,22 +1435,24 @@ if (typeof process !== "undefined" && process.on) {
     }
   }
 
-  process.on("SIGTERM", () => {
+  const onSigterm = () => {
     console.log("[sessionStore] SIGTERM received, dumping memory sessions...");
-    // Attempt to backfill to Redis first if possible
     if (redis && shouldTryRedis()) {
       backfillMemorySessionsToRedis().finally(() => dumpMemorySessions());
     } else {
       dumpMemorySessions();
     }
-  });
+  };
 
-  process.on("SIGINT", () => {
+  const onSigint = () => {
     console.log("[sessionStore] SIGINT received, dumping memory sessions...");
     if (redis && shouldTryRedis()) {
       backfillMemorySessionsToRedis().finally(() => dumpMemorySessions());
     } else {
       dumpMemorySessions();
     }
-  });
+  };
+
+  process.on("SIGTERM", onSigterm);
+  process.on("SIGINT", onSigint);
 }

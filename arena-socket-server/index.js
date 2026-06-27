@@ -9,6 +9,34 @@ const redisUrl = process.env.REDIS_URL;
 const Redis = redisUrl ? require("ioredis") : require("ioredis-mock");
 const { createAdapter } = require("@socket.io/redis-adapter");
 
+class BoundedMap {
+  constructor(maxSize = 10000) {
+    this.maxSize = maxSize;
+    this._map = new Map();
+  }
+  get(key) {
+    return this._map.get(key);
+  }
+  set(key, value) {
+    if (this._map.has(key)) {
+      this._map.delete(key);
+    } else if (this._map.size >= this.maxSize) {
+      const oldest = this._map.keys().next().value;
+      if (oldest !== undefined) this._map.delete(oldest);
+    }
+    this._map.set(key, value);
+  }
+  delete(key) {
+    return this._map.delete(key);
+  }
+  entries() {
+    return this._map.entries();
+  }
+  get size() {
+    return this._map.size;
+  }
+}
+
 const app = express();
 const ALLOWED_ORIGINS = [
   "http://localhost:3000",
@@ -195,10 +223,10 @@ const ATOMIC_MATCH_UPDATE_SCRIPT = `
       updated = string.gsub(updated, '}%s*$', ',"winnerId":"' .. actorUserId .. '"}')
     end
     redis.call('SET', matchKey, updated, 'EX', 3600)
-    -- Extract opponent socketId for notification
+    -- Extract opponent socketId for notification (match userId, not socketId)
     local opponentSocketId = ''
-    for sId in string.gmatch(updated, '"socketId"%s*:%s*"([^"]+)"') do
-      if sId ~= actorUserId then
+    for uId, sId in string.gmatch(updated, '"userId"%s*:%s*"([^"]+)"[^}]+"socketId"%s*:%s*"([^"]+)"') do
+      if uId ~= actorUserId then
         opponentSocketId = sId
       end
     end
@@ -208,17 +236,13 @@ const ATOMIC_MATCH_UPDATE_SCRIPT = `
     -- Set disconnected — the remaining player claims win via match_complete
     local updated = string.gsub(matchStr, '"status"%s*:%s*"[^"]+"', '"status":"disconnected"')
     redis.call('SET', matchKey, updated, 'EX', 3600)
-    -- Extract opponent info
+    -- Extract opponent info (match userId, not socketId)
     local opponentSocketId = ''
     local opponentUserId = ''
-    for sId in string.gmatch(matchStr, '"socketId"%s*:%s*"([^"]+)"') do
-      if sId ~= actorUserId then
-        opponentSocketId = sId
-      end
-    end
-    for uId in string.gmatch(matchStr, '"userId"%s*:%s*"([^"]+)"') do
+    for uId, sId in string.gmatch(matchStr, '"userId"%s*:%s*"([^"]+)"[^}]+"socketId"%s*:%s*"([^"]+)"') do
       if uId ~= actorUserId then
         opponentUserId = uId
+        opponentSocketId = sId
       end
     end
     return '{"status":"disconnected","opponentSocketId":"' .. opponentSocketId .. '","opponentUserId":"' .. opponentUserId .. '"}'
@@ -232,6 +256,14 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
   },
   adapter: createAdapter(pubClient, subClient)
+});
+
+io.use((socket, next) => {
+  const ip = socket.handshake.address;
+  if (isConnectionRateLimited(ip)) {
+    return next(new Error("Rate limited"));
+  }
+  next();
 });
 
 const PORT = process.env.PORT || 4000;
@@ -271,7 +303,7 @@ function verifyAuthToken(token) {
 }
 
 // Connection rate limiting to prevent JWT brute-forcing
-const connectionAttempts = new Map();
+const connectionAttempts = new BoundedMap(10000);
 const MAX_CONNECTION_ATTEMPTS = 5;
 const CONNECTION_ATTEMPT_WINDOW_MS = 60000;
 
@@ -285,16 +317,6 @@ function isConnectionRateLimited(ip) {
   entry.count++;
   return entry.count > MAX_CONNECTION_ATTEMPTS;
 }
-
-// Cleanup interval to prevent memory leaks in connection rate limiter
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of connectionAttempts.entries()) {
-    if (now > entry.resetTime) {
-      connectionAttempts.delete(ip);
-    }
-  }
-}, CONNECTION_ATTEMPT_WINDOW_MS);
 
 // Periodic queue health checker to remove stale entries from matchmaking queues
 setInterval(async () => {
@@ -518,6 +540,8 @@ io.on("connection", async (socket) => {
   socket.on("join_match", async (data) => {
     try {
       if (!data.matchId) return;
+      const userMatchId = await redisClient.hget(`{arena}:socket:${socket.id}`, "matchId");
+      if (!userMatchId || userMatchId !== data.matchId) return;
       const matchStr = await redisClient.get(`{arena}:match:${data.matchId}`);
       if (!matchStr) return;
       const match = JSON.parse(matchStr);
@@ -561,7 +585,9 @@ io.on("connection", async (socket) => {
       console.log(`Player ${socket.data.userId} emitted typing_status to room ${data.matchId}`);
       socket.to(data.matchId).emit("opponent_typing_status", {
         isTyping: data.isTyping,
+        isTyping: data.isTyping,
         userId: socket.data.userId,
+        linesCoded: data.linesCoded,
         cpm: data.cpm || 0,
         language: data.language
       });
@@ -576,7 +602,10 @@ io.on("connection", async (socket) => {
       const matchId = await redisClient.hget(`{arena}:socket:${socket.id}`, "matchId");
       if (!matchId || matchId !== data.matchId) return;
 
-      socket.to(data.matchId).emit("opponent_test_submit", { userId: socket.data.userId });
+      socket.to(data.matchId).emit("opponent_test_submit", { 
+        userId: socket.data.userId,
+        failedAttempts: data.failedAttempts
+      });
     } catch (error) {
       console.error(`[test_submit] Error for user ${socket.data.userId}:`, error);
     }
@@ -593,11 +622,31 @@ io.on("connection", async (socket) => {
         userId: socket.data.userId,
         passed: data.passed,
         total: data.total,
-        status: data.status
+        status: data.status,
+        failedAttempts: data.failedAttempts
       });
     } catch (error) {
       console.error(`[test_result] Error for user ${socket.data.userId}:`, error);
     }
+  });
+
+  socket.on("spectator_chat", (data) => {
+    if (!data.matchId || !data.message) return;
+    socket.to(data.matchId).emit("spectator_chat", {
+      userId: socket.data.userId,
+      username: socket.handshake.query.username || "Spectator",
+      message: data.message,
+      timestamp: Date.now()
+    });
+  });
+
+  socket.on("spectator_emote", (data) => {
+    if (!data.matchId || !data.emote) return;
+    socket.to(data.matchId).emit("spectator_emote", {
+      userId: socket.data.userId,
+      emote: data.emote,
+      timestamp: Date.now()
+    });
   });
 
   socket.on("match_complete", async (data) => {
@@ -729,7 +778,7 @@ async function getRedisAggregateStats() {
 }
 
 // Rate limiter for debug endpoint to prevent brute-force discovery of debug key
-const debugRequestCounts = new Map();
+const debugRequestCounts = new BoundedMap(10000);
 
 function isDebugRateLimited(ip) {
   const now = Date.now();
@@ -743,16 +792,6 @@ function isDebugRateLimited(ip) {
   entry.count++;
   return entry.count > maxRequests;
 }
-
-// Cleanup interval for debug rate limiter
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of debugRequestCounts.entries()) {
-    if (now > entry.resetTime) {
-      debugRequestCounts.delete(ip);
-    }
-  }
-}, 60000);
 
 app.get("/debug", async (req, res) => {
   try {

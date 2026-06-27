@@ -10,7 +10,6 @@ import MatchmakingModal from "@/app/components/ui/MatchmakingModal";
 import DuelSimulatorModal from "@/app/components/ui/DuelSimulatorModal";
 import SpectatorSimulatorModal from "@/app/components/ui/SpectatorSimulatorModal";
 import CreateDuelModal from "@/app/components/ui/CreateDuelModal";
-import BackToTop from "@/app/components/ui/backtotop";
 import Footer from "@/app/components/footer";
 import {
   Home,
@@ -65,9 +64,10 @@ export default function ArenaPage() {
   const { progress, getStatus, streakData } = useSheetProgress();
 
   const ensureLoggedIn = () => {
+    if (loading) return false; 
     if (!user) {
       toast.error("Please login to use this feature!");
-      router.push("/login");
+      router.push("/login?next=/arena");
       return false;
     }
     return true;
@@ -92,7 +92,8 @@ export default function ArenaPage() {
       const protectedTabs = ["ranked", "friend", "streak", "badges", "history"];
       
       if (validTabs.includes(hash)) {
-        if (protectedTabs.includes(hash) && !user) {
+        // Don't redirect while auth session is still resolving — user may be logged in
+        if (protectedTabs.includes(hash) && !loading && !user) {
           router.push("/arena");
           setActiveTab("home");
           return;
@@ -109,31 +110,47 @@ export default function ArenaPage() {
     return () => {
       window.removeEventListener("hashchange", handleHashChange);
     };
-  }, [user, router]);
+  }, [user, loading, router]);
 
   // Live Matches polling
   const [liveMatches, setLiveMatches] = useState([]);
 
   useEffect(() => {
+    let timeoutId;
+    let isOffline = false;
+
     const fetchLiveMatches = async () => {
       try {
-        const socketUrl = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.")
-          ? `http://${window.location.hostname}:4000`
-          : "https://algobuddy-socket-server.onrender.com";
+        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || 
+          (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.")
+            ? `http://${window.location.hostname}:4000`
+            : "https://algobuddy-socket-server.onrender.com");
           
         const res = await fetch(`${socketUrl}/api/matches/active`);
         if (res.ok) {
           const data = await res.json();
           setLiveMatches(data.matches || []);
+          if (isOffline) {
+            isOffline = false;
+            console.log("Live matches server is back online.");
+          }
+        } else {
+          throw new Error(`Server returned status: ${res.status}`);
         }
       } catch (err) {
-        console.error("Failed to fetch live matches:", err);
+        if (!isOffline) {
+          isOffline = true;
+          console.warn("Live matches server is offline. Real-time updates disabled. Retrying less frequently.");
+        }
+      } finally {
+        // Schedule next poll: 5 seconds if online, 60 seconds if offline
+        const delay = isOffline ? 60000 : 5000;
+        timeoutId = setTimeout(fetchLiveMatches, delay);
       }
     };
 
     fetchLiveMatches();
-    const interval = setInterval(fetchLiveMatches, 5000);
-    return () => clearInterval(interval);
+    return () => clearTimeout(timeoutId);
   }, []);
 
   // Modals state
@@ -770,7 +787,6 @@ export default function ArenaPage() {
       </div>
 
       <Footer />
-       <BackToTop />
 
       {/* ─── Interactive Modals ────────────────────────────────────────────── */}
       <MatchmakingModal

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Play, AlertTriangle, CheckCircle, Terminal } from "lucide-react";
+import { X, Play, AlertTriangle, CheckCircle, Terminal, Loader2 } from "lucide-react";
 import { Editor } from "@monaco-editor/react";
 import { io } from "socket.io-client";
 import { api } from "@/lib/apiClient";
@@ -16,13 +16,15 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
   const [battleFinished, setBattleFinished] = useState(false);
   const [victoryState, setVictoryState] = useState(null); // "victory" or "defeat"
   const [isExecuting, setIsExecuting] = useState(false);
-  const [failedAttempts, setFailedAttempts] = useState(0);
-  const [language, setLanguage] = useState("javascript");
   const [socket, setSocket] = useState(null);
+  const [language, setLanguage] = useState("javascript");
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   const logContainerRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const opponentIdleTimerRef = useRef(null);
+  const keystrokesRef = useRef([]);
 
   // Formatting time helper
   const formatTime = (secs) => {
@@ -70,9 +72,10 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
       const token = sessionData?.session?.access_token;
       if (!token) return;
 
-      const springBootBase = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" 
-        ? "http://localhost:8080" 
-        : "https://algobuddy-backend-7iwv.onrender.com";
+      const springBootBase = process.env.NEXT_PUBLIC_SPRING_BOOT_API_URL || 
+        (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.")
+          ? `http://${window.location.hostname}:8080` 
+          : "https://algobuddy-backend-7iwv.onrender.com");
 
       await fetch(`${springBootBase}/api/v1/arena/match-result`, {
         method: "POST",
@@ -97,9 +100,34 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
   useEffect(() => {
     if (!isOpen) return;
 
-    const socketUrl = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.")
-      ? `http://${window.location.hostname}:4000`
-      : "https://algobuddy-socket-server.onrender.com";
+    // Reset game/match state
+    setIsInitializing(true);
+    setSeconds(0);
+    startTimeRef.current = Date.now();
+    setUserCode(`function twoSum(nums, target) {\n    // Write your code here\n    \n}`);
+    setOppCode(`// Opponent is preparing...`);
+    setUserOutput("");
+    setOppStatus("Idle");
+    setLogs(["[00:00] Duel started. Let the battle begin!"]);
+    setBattleFinished(false);
+    setVictoryState(null);
+    setIsExecuting(false);
+    setFailedAttempts(0);
+
+    const safetyTimeout = setTimeout(() => {
+      setIsInitializing((initializing) => {
+        if (initializing) {
+          addLog("Initialization timed out. Entering arena anyway.");
+          return false;
+        }
+        return initializing;
+      });
+    }, 8000);
+
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || 
+      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.")
+        ? `http://${window.location.hostname}:4000`
+        : "https://algobuddy-socket-server.onrender.com");
 
     const newSocket = io(socketUrl, {
       transports: ["websocket", "polling"],
@@ -124,11 +152,12 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
          const { data: sessionData } = await supabase.auth.getSession();
          const token = sessionData?.session?.access_token;
          if (token) {
-           const springBootBase = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" 
-             ? "http://localhost:8080" 
-             : "https://algobuddy-backend-7iwv.onrender.com";
+           const springBootBase = process.env.NEXT_PUBLIC_SPRING_BOOT_API_URL || 
+             (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || window.location.hostname.startsWith("192.168.")
+               ? `http://${window.location.hostname}:8080` 
+               : "https://algobuddy-backend-7iwv.onrender.com");
            try {
-             await fetch(`${springBootBase}/api/v1/arena/match/init`, {
+             const res = await fetch(`${springBootBase}/api/v1/arena/match/init`, {
                method: "POST",
                headers: {
                  "Content-Type": "application/json",
@@ -141,11 +170,30 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
                  difficulty: "Easy"
                })
              });
+             if (res.ok) {
+               setIsInitializing(false);
+               addLog("Match initialized on server. Starting duel!");
+             } else {
+               addLog("Failed to initialize match on server. Stats tracking may be offline.");
+               setIsInitializing(false);
+             }
            } catch (e) {
              console.error("Failed to init match:", e);
+             addLog("Failed to connect to matchmaking backend. Stats tracking offline.");
+             setIsInitializing(false);
            }
+         } else {
+           setIsInitializing(false);
          }
+      } else {
+        setIsInitializing(false);
       }
+    });
+
+    newSocket.on("connect_error", (err) => {
+      console.error("Socket Connection Error:", err.message);
+      addLog("Socket connection error. Initializing offline mode...");
+      setIsInitializing(false);
     });
 
     newSocket.on("opponent_typing_status", (data) => {
@@ -207,6 +255,7 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
     });
 
     return () => {
+      clearTimeout(safetyTimeout);
       if (opponentIdleTimerRef.current) clearTimeout(opponentIdleTimerRef.current);
       newSocket.disconnect();
     };
@@ -214,21 +263,37 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
 
   const handleCodeChange = (value) => {
     setUserCode(value);
+    
+    const now = Date.now();
+    keystrokesRef.current.push(now);
+    keystrokesRef.current = keystrokesRef.current.filter(time => now - time < 5000);
+    const currentCpm = keystrokesRef.current.length * 12;
+
     if (socket && opponent?.matchId) {
+      const currentLines = value.split('\n').length;
+      
+      // Clear existing timeout
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       } else {
+        // If no timeout existed, we just started typing!
         socket.emit("typing_status", {
           matchId: opponent.matchId,
           isTyping: true,
+          linesCoded: currentLines,
+          cpm: currentCpm,
           language: language
         });
       }
 
+      // Set timeout to stop typing after 1.5s
       typingTimeoutRef.current = setTimeout(() => {
         socket.emit("typing_status", {
           matchId: opponent.matchId,
-          isTyping: false
+          isTyping: false,
+          linesCoded: currentLines,
+          cpm: 0,
+          language: language
         });
         typingTimeoutRef.current = null;
       }, 1500);
@@ -243,7 +308,8 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
     
     if (socket && opponent?.matchId) {
       socket.emit("test_submit", {
-        matchId: opponent.matchId
+        matchId: opponent.matchId,
+        failedAttempts: failedAttempts
       });
       addLog("You started executing code.");
     }
@@ -251,7 +317,7 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
     try {
       const data = await api.request("/api/code-lab", {
         method: "POST",
-        body: { code: userCode, language }
+        body: { code: userCode }
       });
       
       let outText = `Status: ${data.message || data.status}\n`;
@@ -260,12 +326,17 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
       setUserOutput(outText);
       addLog(`You received execution result: ${data.message || data.status}`);
 
+      const isSuccess = data.status === 3 || data.status === "SUCCESS";
+      const newFailedAttempts = isSuccess ? failedAttempts : failedAttempts + 1;
+      if (!isSuccess) setFailedAttempts(newFailedAttempts);
+
       if (socket && opponent?.matchId) {
         socket.emit("test_result", {
           matchId: opponent.matchId,
           status: data.status,
-          passed: (data.status === 3 || data.status === "SUCCESS") ? 1 : 0,
-          total: 1
+          passed: isSuccess ? 1 : 0,
+          total: 1,
+          failedAttempts: newFailedAttempts
         });
 
         if (data.status === 3 || data.status === "SUCCESS") {
@@ -306,6 +377,30 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
           </div>
 
           <div className="flex items-center gap-6">
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Language</span>
+              <select 
+                value={language}
+                onChange={(e) => {
+                  setLanguage(e.target.value);
+                  if (socket && opponent?.matchId) {
+                    socket.emit("typing_status", {
+                      matchId: opponent.matchId,
+                      isTyping: true,
+                      linesCoded: userCode.split('\n').length,
+                      cpm: 0,
+                      language: e.target.value
+                    });
+                  }
+                }}
+                className="bg-slate-800 border border-slate-700 text-xs rounded px-2 py-1 outline-none text-slate-200"
+              >
+                <option value="javascript">JavaScript</option>
+                <option value="python">Python</option>
+                <option value="cpp">C++</option>
+                <option value="java">Java</option>
+              </select>
+            </div>
             <div className="text-center">
               <span className="text-xs text-slate-400 block uppercase tracking-wider font-semibold">Time Elapsed</span>
               <span className="text-lg font-mono font-bold text-primary dark:text-purple-400">
@@ -314,27 +409,6 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
             </div>
 
             <div className="flex gap-2">
-              <select 
-                value={language}
-                onChange={(e) => {
-                  const newLang = e.target.value;
-                  setLanguage(newLang);
-                  if (socket && opponent?.matchId) {
-                    socket.emit("typing_status", {
-                      matchId: opponent.matchId,
-                      isTyping: true,
-                      cpm: cpm,
-                      language: newLang
-                    });
-                  }
-                }}
-                className="bg-slate-800 text-slate-300 border border-slate-700 rounded-md text-xs px-2 py-1 outline-none focus:border-primary"
-              >
-                <option value="javascript">JavaScript</option>
-                <option value="python">Python</option>
-                <option value="java">Java</option>
-                <option value="cpp">C++</option>
-              </select>
               <button
                 onClick={executeCode}
                 disabled={isExecuting || battleFinished}
@@ -354,7 +428,13 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
         </div>
 
         {/* Split Area */}
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex overflow-hidden relative">
+          {isInitializing && (
+            <div className="absolute inset-0 bg-slate-950/80 z-[100] flex flex-col items-center justify-center space-y-4">
+              <Loader2 className="w-10 h-10 text-primary dark:text-purple-400 animate-spin" />
+              <p className="text-sm font-semibold text-slate-300">Initializing match session...</p>
+            </div>
+          )}
           {/* Left Panel: Problem Statement */}
           <div className="w-1/4 bg-[#0a0a0f] border-r border-slate-800 p-6 overflow-y-auto hidden md:block">
             <h2 className="text-xl font-bold mb-4">{problemName}</h2>
@@ -380,7 +460,7 @@ export default function DuelSimulatorModal({ isOpen, onClose, opponent, currentU
             <div className="flex-1 relative">
               <Editor
                 height="100%"
-                language={language}
+                defaultLanguage="javascript"
                 theme="vs-dark"
                 value={userCode}
                 onChange={handleCodeChange}
