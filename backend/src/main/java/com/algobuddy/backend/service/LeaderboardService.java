@@ -13,6 +13,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -33,10 +36,14 @@ public class LeaderboardService {
     }
 
     private List<LeaderboardEntryDto> mapToStreakEntries(List<UserPracticeStats> statsList) {
+        List<UUID> userIds = statsList.stream().map(UserPracticeStats::getUserId).toList();
+        Map<UUID, UserProfile> profileMap = profileRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(UserProfile::getUserId, p -> p));
+
         List<LeaderboardEntryDto> result = new ArrayList<>();
         int rank = 1;
         for (UserPracticeStats stat : statsList) {
-            UserProfile profile = profileRepository.findById(stat.getUserId()).orElse(null);
+            UserProfile profile = profileMap.get(stat.getUserId());
             result.add(LeaderboardEntryDto.builder()
                     .rank(rank++)
                     .userId(stat.getUserId())
@@ -49,10 +56,14 @@ public class LeaderboardService {
     }
 
     private List<LeaderboardEntryDto> mapToArenaEntries(List<UserArenaProfile> profilesList) {
+        List<UUID> userIds = profilesList.stream().map(UserArenaProfile::getUserId).toList();
+        Map<UUID, UserProfile> profileMap = profileRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(UserProfile::getUserId, p -> p));
+
         List<LeaderboardEntryDto> result = new ArrayList<>();
         int rank = 1;
         for (UserArenaProfile arenaProfile : profilesList) {
-            UserProfile profile = profileRepository.findById(arenaProfile.getUserId()).orElse(null);
+            UserProfile profile = profileMap.get(arenaProfile.getUserId());
             result.add(LeaderboardEntryDto.builder()
                     .rank(rank++)
                     .userId(arenaProfile.getUserId())
